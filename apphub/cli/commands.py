@@ -137,7 +137,7 @@ def install(
 
             app_info = results[choice-1]
             console.print(format_app_panel(app_info))
-            install_target = app_info.name
+            install_target = app_info.id
             install_format = app_info.format
 
     if not yes:

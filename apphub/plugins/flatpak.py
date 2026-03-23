@@ -1,5 +1,9 @@
 import re
+import os
 import subprocess
+from pathlib import Path
+
+from apphub.core.exceptions import InstallError
 from apphub.core.models import AppCategory, AppFormat, AppManifest
 from apphub.plugins.base import PluginBase
 
@@ -82,7 +86,7 @@ class FlatpakPlugin(PluginBase):
                 ref = parts[6].strip() if len(parts) > 6 else ""
 
                 # Prefer exact size
-                size_bytes = _get_exact_size(app_id) or (
+                size_bytes = self._get_exact_size(app_id) or (
                     _parse_flatpak_size(size_str) if size_str else None
                 )
 
@@ -105,3 +109,125 @@ class FlatpakPlugin(PluginBase):
             pass
 
         return apps
+
+    def _inspect_flatpak_bundle(self, path: str) -> AppManifest | None:
+        try:
+            result = subprocess.run(
+                ["flatpak", "info", path],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                return None
+
+            name = app_id = version = None
+
+            for line in result.stdout.splitlines():
+                if line.startswith("Name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.startswith("ID:"):
+                    app_id = line.split(":", 1)[1].strip()
+                elif line.startswith("Version:"):
+                    version = line.split(":", 1)[1].strip()
+
+            return AppManifest(
+                name=name or app_id,
+                id=f"flatpak:{app_id}" if app_id else f"flatpak:{path}",
+                format=AppFormat.FLATPAK,
+                version=version or "unknown",
+                publisher="bundle",
+                installed=False,
+                description=None,
+                size_bytes=os.path.getsize(path),
+                category=AppCategory.DESKTOP,
+            )
+
+        except Exception as e:
+            self.logger.error(f"Flatpak bundle inspect error: {str(e)}")
+            return None
+
+    def inspect(self, path: str) -> AppManifest | None:
+        try:
+            if path.endswith(".flatpak"):
+                return self._inspect_flatpak_bundle(path)
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Flatpak inspect error: {str(e)}")
+            return None
+
+    def search(self, query: str) -> list[AppManifest]:
+        apps = []
+        try:
+            result = subprocess.run(
+                ["flatpak", "search", query],
+                capture_output=True,
+                text=True,
+            )
+
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+
+                name = parts[0]
+                description = parts[1] if len(parts) > 1 else ""
+                app_id = parts[2]
+
+                apps.append(
+                    AppManifest(
+                        name=name,
+                        id=f"flatpak:{app_id}",
+                        format=AppFormat.FLATPAK,
+                        version="unknown",
+                        installed=False,
+                        publisher="flathub",
+                        description=description,
+                        category=AppCategory.DESKTOP,
+                        size_bytes=None,
+                    )
+                )
+
+        except Exception as e:
+            self.logger.warning(f"Flatpak search failed: {e}")
+            pass
+
+        return apps
+
+    def install(self, query_or_path: str, launch: bool) -> bool:
+        path = Path(query_or_path)
+
+        subprocess.run(
+            ["flatpak", "remote-add", "--if-not-exists", "flathub",
+             "https://dl.flathub.org/repo/flathub.flatpakrepo"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        if path.is_file() and path.exists():
+            cmd = ["flatpak", "install", "-y", str(path.resolve())]
+        else:
+            app_id = query_or_path.lstrip("flatpak:")
+            cmd = ["flatpak", "install", "-y", "flathub", app_id]
+
+        try:
+            subprocess.run(cmd, check=True)
+
+            # Optional launch
+            if launch and query_or_path:
+                subprocess.Popen(
+                    ["flatpak", "run", query_or_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+
+            return True
+
+        except subprocess.CalledProcessError:
+            raise InstallError(f"Flatpak installation failed: {query_or_path}")

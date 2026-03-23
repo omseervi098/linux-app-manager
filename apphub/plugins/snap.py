@@ -1,7 +1,10 @@
 import subprocess
+import yaml
+import os
 from pathlib import Path
 
 from apphub.core.models import AppCategory, AppFormat, AppManifest
+from apphub.core.utils import is_cmd_available
 from apphub.plugins.base import PluginBase
 
 
@@ -114,6 +117,87 @@ class SnapPlugin(PluginBase):
             pass
         return apps
 
+    def inspect(self, path: str) -> AppManifest | None:
+        try:
+            result = subprocess.run(
+                ["snap", "info", path],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode == 0 and result.stdout:
+                return self._parse_snap_info(result.stdout, path)
+
+            return self._inspect_snap_yaml(path) # Fallback
+
+        except Exception as e:
+            self.logger.error(f"Snap inspect error: {str(e)}")
+            return None
+
+    @staticmethod
+    def _parse_snap_info(output: str, path: str) -> AppManifest:
+        name = version = publisher = description = None
+
+        for line in output.splitlines():
+            if line.startswith("name:"):
+                name = line.split(":", 1)[1].strip()
+            elif line.startswith("version:"):
+                version = line.split(":", 1)[1].strip()
+            elif line.startswith("publisher:"):
+                publisher = line.split(":", 1)[1].strip()
+            elif line.startswith("summary:"):
+                description = line.split(":", 1)[1].strip()
+
+        size_bytes = os.path.getsize(path)
+
+        return AppManifest(
+            name=name or "unknown",
+            id=f"snap:{name}" if name else f"snap:{path}",
+            format=AppFormat.SNAP,
+            version=version or "unknown",
+            publisher=publisher or "unknown",
+            installed=False,
+            description=description,
+            size_bytes=size_bytes,
+            category=AppCategory.DESKTOP,
+        )
+
+
+    def _inspect_snap_yaml(self, path: str) -> AppManifest | None:
+        try:
+            if not is_cmd_available("unsquashfs"):
+                return None
+            result = subprocess.run(
+                ["unsquashfs", "-n", "-cat", path, "meta/snap.yaml"],
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0 or not result.stdout:
+                return None
+
+            data = yaml.safe_load(result.stdout)
+
+            name = data.get("name")
+            version = data.get("version")
+            description = data.get("summary") or data.get("description")
+
+            return AppManifest(
+                name=name or "unknown",
+                id=f"snap:{name}" if name else f"snap:{path}",
+                format=AppFormat.SNAP,
+                version=version or "unknown",
+                publisher="unknown",
+                installed=False,
+                description=description,
+                size_bytes=os.path.getsize(path),
+                category=AppCategory.DESKTOP,
+            )
+
+        except Exception as e:
+            self.logger.error(f"Snap yaml inspect error: {str(e)}")
+            return None
+
     def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path)
 
@@ -134,6 +218,7 @@ class SnapPlugin(PluginBase):
 
     def uninstall(self, app_name: str) -> bool:
         installed_apps = self.list_apps()
+        # TODO: Rethink uninstall
         if not any(app.name == app_name for app in installed_apps):
             return False
 
