@@ -18,7 +18,6 @@ _SEARCH_DIRS = [
 
 
 class AppImagePlugin(PluginBase):
-
     def list_apps(self) -> list[AppManifest]:
         apps = []
         seen: set[str] = set()
@@ -37,7 +36,9 @@ class AppImagePlugin(PluginBase):
                     with contextlib.suppress(Exception):
                         apps.append(self.inspect(entry))
             except PermissionError as e:
-                self.logger.warning(f"Permission Error while listing apps across {directory}: {str(e)}")
+                self.logger.warning(
+                    f"Permission Error while listing apps across {directory}: {str(e)}"
+                )
                 continue
 
         return apps
@@ -62,7 +63,7 @@ class AppImagePlugin(PluginBase):
 
         name = " ".join(name_parts) if name_parts else stem
 
-        size_bytes: int | None = None
+        size_bytes = None
         with contextlib.suppress(OSError):
             size_bytes = path.stat().st_size
 
@@ -81,8 +82,8 @@ class AppImagePlugin(PluginBase):
                     .strip()
                 )
 
-                import tempfile
                 import configparser
+                import tempfile
 
                 with tempfile.TemporaryDirectory() as tmp:
                     tmp_path = Path(tmp)
@@ -92,8 +93,10 @@ class AppImagePlugin(PluginBase):
                             "unsquashfs",
                             "-f",
                             "-q",
-                            "-o", str(offset),
-                            "-d", str(tmp_path),
+                            "-o",
+                            str(offset),
+                            "-d",
+                            str(tmp_path),
                             str(path),
                             "*.desktop",
                             ".DirIcon",
@@ -127,7 +130,9 @@ class AppImagePlugin(PluginBase):
                     elif any(n.endswith(".jar") for n in names):
                         runtime = AppRuntime.JAVA
 
-                    elif "site-packages" in names and any(n.endswith(".py") for n in names):
+                    elif "site-packages" in names and any(
+                        n.endswith(".py") for n in names
+                    ):
                         runtime = AppRuntime.PYTHON
 
                     elif "package.json" in names or "node_modules" in names:
@@ -141,7 +146,6 @@ class AppImagePlugin(PluginBase):
                     icon_name = None
 
                     if desktop:
-
                         config = configparser.ConfigParser(interpolation=None)
                         content = desktop.read_text(errors="ignore")
 
@@ -159,7 +163,7 @@ class AppImagePlugin(PluginBase):
                                 or entry.get("X-AppImage-Developer")
                                 or publisher
                             )
-                            
+
                             name = entry.get("Name", name)
                             description = entry.get("Comment", description)
 
@@ -167,12 +171,11 @@ class AppImagePlugin(PluginBase):
                                 version = entry.get("Version", version)
 
                             icon_name = entry.get("Icon")
-                        
+
                         import xml.etree.ElementTree as ET
 
-                        appstream_files = (
-                            list(tmp_path.rglob("*.appdata.xml")) +
-                            list(tmp_path.rglob("*.metainfo.xml"))
+                        appstream_files = list(tmp_path.rglob("*.appdata.xml")) + list(
+                            tmp_path.rglob("*.metainfo.xml")
                         )
 
                         if appstream_files:
@@ -195,7 +198,10 @@ class AppImagePlugin(PluginBase):
                                     if release is not None:
                                         version = release.attrib.get("version", version)
 
-                            except Exception:
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"AppImage inspect failed : {str(e)}"
+                                )
                                 pass
 
                     icon_file = tmp_path / ".DirIcon"
@@ -204,25 +210,26 @@ class AppImagePlugin(PluginBase):
                         candidates = []
 
                         if icon_name:
-                            candidates.extend(
-                                tmp_path.rglob(f"{icon_name}*.png"))
-                            candidates.extend(
-                                tmp_path.rglob(f"{icon_name}*.svg"))
+                            candidates.extend(tmp_path.rglob(f"{icon_name}*.png"))
+                            candidates.extend(tmp_path.rglob(f"{icon_name}*.svg"))
 
                         # fallback: pick largest png
                         if not candidates:
-                            candidates = list(tmp_path.rglob(
-                                "*.png")) + list(tmp_path.rglob("*.svg"))
+                            candidates = list(tmp_path.rglob("*.png")) + list(
+                                tmp_path.rglob("*.svg")
+                            )
 
                         if candidates:
-                            icon_file = max(candidates, key=lambda p: p.stat().st_size if p.exists() else 0)
+                            icon_file = max(
+                                candidates,
+                                key=lambda p: p.stat().st_size if p.exists() else 0,
+                            )
 
                     if icon_file.exists():
                         cache = Path.home() / ".local/share/apphub/icons"
                         cache.mkdir(parents=True, exist_ok=True)
 
-                        cached_icon = cache / \
-                            f"appimage_{path.stem}{icon_file.suffix}"
+                        cached_icon = cache / f"appimage_{path.stem}{icon_file.suffix}"
                         shutil.copy2(icon_file, cached_icon)
                         icon_path = str(cached_icon)
 
@@ -239,9 +246,9 @@ class AppImagePlugin(PluginBase):
             size_bytes=size_bytes,
             description=description,
             icon=icon_path,
-            runtime=runtime
+            runtime=runtime,
         )
-    
+
     def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path).resolve()
         if not path.exists():
@@ -273,8 +280,12 @@ class AppImagePlugin(PluginBase):
             try:
                 # Use gtk-launch to ensure it uses the desktop entry logic
                 desktop_id = f"apphub-{dest_path.stem}.desktop"
-                subprocess.Popen(["gtk-launch", desktop_id], start_new_session=True,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["gtk-launch", desktop_id],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             except Exception as e:
                 self.logger.error(f"Failed to launch app: {e}")
 

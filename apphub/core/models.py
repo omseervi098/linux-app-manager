@@ -12,6 +12,7 @@ class AppFormat(StrEnum):
     ARCH = "pacman"
     TARBALL = "tarball"
 
+
 class AppRuntime(StrEnum):
     NATIVE = "native"
     ELECTRON = "electron"
@@ -22,10 +23,12 @@ class AppRuntime(StrEnum):
     NODE = "node"
     UNKNOWN = "unknown"
 
+
 class AppCategory(StrEnum):
     DESKTOP = "desktop"
     SYSTEM = "system"
     CLI = "cli"
+
 
 class AppManifest(BaseModel):
     name: str
@@ -39,6 +42,7 @@ class AppManifest(BaseModel):
     category: AppCategory = AppCategory.DESKTOP
     size_bytes: int | None = None
     runtime: AppRuntime = AppRuntime.NATIVE
+
 
 class DistroInfo(BaseModel):
     name: str

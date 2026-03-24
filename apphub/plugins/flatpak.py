@@ -9,10 +9,15 @@ from apphub.plugins.base import PluginBase
 
 _SIZE_UNITS = {
     "B": 1,
-    "KB": 1024, "kB": 1024, "KiB": 1024,
-    "MB": 1024**2, "MiB": 1024**2,
-    "GB": 1024**3, "GiB": 1024**3,
-    "TB": 1024**4, "TiB": 1024**4,
+    "KB": 1024,
+    "kB": 1024,
+    "KiB": 1024,
+    "MB": 1024**2,
+    "MiB": 1024**2,
+    "GB": 1024**3,
+    "GiB": 1024**3,
+    "TB": 1024**4,
+    "TiB": 1024**4,
     "bytes": 1,
 }
 
@@ -203,8 +208,13 @@ class FlatpakPlugin(PluginBase):
         path = Path(query_or_path)
 
         subprocess.run(
-            ["flatpak", "remote-add", "--if-not-exists", "flathub",
-             "https://dl.flathub.org/repo/flathub.flatpakrepo"],
+            [
+                "flatpak",
+                "remote-add",
+                "--if-not-exists",
+                "flathub",
+                "https://dl.flathub.org/repo/flathub.flatpakrepo",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

@@ -49,7 +49,9 @@ class AptPlugin(PluginBase):
         section_key = section.rsplit("/", 1)[-1] if "/" in section else section
         return cls._SECTION_MAP.get(section_key, AppCategory.CLI)
 
-    def _get_package_metadata(self, name: str) -> tuple[str | None, str | None, int | None, str | None]:
+    def _get_package_metadata(
+        self, name: str
+    ) -> tuple[str | None, str | None, int | None, str | None]:
         try:
             result = subprocess.run(
                 [
@@ -69,7 +71,9 @@ class AptPlugin(PluginBase):
 
             version = parts[0] if len(parts) > 0 else None
             publisher = parts[1] if len(parts) > 1 else None
-            size = int(parts[2]) * 1024 if len(parts) > 2 and parts[2].isdigit() else None
+            size = (
+                int(parts[2]) * 1024 if len(parts) > 2 and parts[2].isdigit() else None
+            )
             description = parts[3] if len(parts) > 3 else None
 
             return version, publisher, size, description
@@ -84,12 +88,20 @@ class AptPlugin(PluginBase):
 
         MAX_LIST_SIZE = 100 * 1024 * 1024
 
-        fields = ["Package", "Version", "Maintainer", "Depends",
-                  "Description", "Installed-Size"]
+        fields = [
+            "Package",
+            "Version",
+            "Maintainer",
+            "Depends",
+            "Description",
+            "Installed-Size",
+        ]
 
         result = subprocess.run(
             ["dpkg-deb", "-f", str(path)] + fields,
-            capture_output=True, text=True, check=True
+            capture_output=True,
+            text=True,
+            check=True,
         )
         metadata = {}
         for line in result.stdout.splitlines():
@@ -115,7 +127,9 @@ class AptPlugin(PluginBase):
             try:
                 result = subprocess.run(
                     ["dpkg-deb", "-c", str(path)],
-                    capture_output=True, text=True, check=True
+                    capture_output=True,
+                    text=True,
+                    check=True,
                 )
                 for line in result.stdout.splitlines():
                     parts = line.split()
@@ -135,8 +149,11 @@ class AptPlugin(PluginBase):
                 self.logger.warning(f"APT inspect failed while extract .deb : {e}")
                 pass
 
-            if ("chrome-sandbox" in names or "libnode.so" in names
-                    or any(n.endswith(".asar") for n in names)):
+            if (
+                "chrome-sandbox" in names
+                or "libnode.so" in names
+                or any(n.endswith(".asar") for n in names)
+            ):
                 runtime = AppRuntime.ELECTRON
             elif any("tauri" in n.lower() for n in names):
                 runtime = AppRuntime.TAURI
@@ -155,7 +172,8 @@ class AptPlugin(PluginBase):
                         tmp_path = Path(tmp)
                         subprocess.run(
                             ["dpkg-deb", "-x", str(path), tmp],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
                         )
                         icon_file = tmp_path / best_icon.lstrip("./")
                         if icon_file.exists():
@@ -177,7 +195,7 @@ class AptPlugin(PluginBase):
             format=AppFormat.DEBIAN,
             size_bytes=size_bytes,
             icon=icon_path,
-            runtime=runtime
+            runtime=runtime,
         )
 
     def install(self, query_or_path: str, launch: bool) -> bool:
@@ -186,7 +204,7 @@ class AptPlugin(PluginBase):
             cmd = ["sudo", "apt", "install", str(path.resolve()), "-y"]
         else:
             cmd = []
-            self.logger.error(f"APT install failed as search is not implemented")
+            self.logger.error("APT install failed as search is not implemented")
 
         app_detail = self.inspect(path=path)
         try:
@@ -224,11 +242,14 @@ class AptPlugin(PluginBase):
                 if not name:
                     continue
 
-                if (name.startswith("lib") and not name.endswith("-bin")) or \
-                        name.endswith(("-dbgsym", "-dbg", "-dev", "-doc")):
+                if (
+                    name.startswith("lib") and not name.endswith("-bin")
+                ) or name.endswith(("-dbgsym", "-dbg", "-dev", "-doc")):
                     continue
 
-                version, publisher, size_bytes, description = self._get_package_metadata(name)
+                version, publisher, size_bytes, description = (
+                    self._get_package_metadata(name)
+                )
 
                 apps.append(
                     AppManifest(

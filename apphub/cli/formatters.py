@@ -73,7 +73,7 @@ def format_app_panel(app: AppManifest) -> Panel:
 
     if app.runtime != AppRuntime.NATIVE.value:
         lines.append(f"\n[bold]Runtime[/bold]: {app.runtime.value}")
-        
+
     return Panel(
         "\n".join(lines),
         title=f"[bold cyan]{app.name}[/bold cyan]",

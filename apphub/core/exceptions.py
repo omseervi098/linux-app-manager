@@ -1,18 +1,26 @@
 class AppHubError(Exception):
     """Base error for AppHub."""
+
     pass
 
+
 class PluginError(AppHubError):
-     """Raised when Plugin need to raise exception"""
-     def __init__(self, plugin_name: str, msg: str):
+    """Raised when Plugin need to raise exception"""
+
+    def __init__(self, plugin_name: str, msg: str):
         super().__init__(msg)
         self.plugin_name = plugin_name
-    
+
+
 class PluginNotAvailableError(PluginError):
     """Raised when a required backend (e.g. snap, flatpak) is not installed."""
 
     def __init__(self, plugin_name: str):
-        super().__init__(plugin_name=plugin_name, msg=f"Plugin backend not available: '{plugin_name}'. Is it installed?")
+        super().__init__(
+            plugin_name=plugin_name,
+            msg=f"Plugin backend not available: '{plugin_name}'. Is it installed?",
+        )
+
 
 class AppNotFoundError(AppHubError):
     """Raised when a requested application cannot be found."""

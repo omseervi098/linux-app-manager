@@ -26,7 +26,13 @@ class AppHubCore:
         self._add_native_format()
 
     def _add_native_format(self):
-        if self.distro_info.id in ("ubuntu", "debian", "linuxmint", "pop", "elementary"):
+        if self.distro_info.id in (
+            "ubuntu",
+            "debian",
+            "linuxmint",
+            "pop",
+            "elementary",
+        ):
             self.plugins[AppFormat.DEBIAN] = AptPlugin()
         # TODO: Add Support for `dnf`
 
@@ -34,7 +40,9 @@ class AppHubCore:
         result = self.plugins[detect_format(path=path)].inspect(Path(path))
         return result
 
-    def search(self, query: str, formats: list[AppFormat] | None = None) -> list[AppManifest]:
+    def search(
+        self, query: str, formats: list[AppFormat] | None = None
+    ) -> list[AppManifest]:
         apps = []
         for plugin_format, plugin in self.plugins.items():
             if formats and plugin_format not in formats:
@@ -45,11 +53,15 @@ class AppHubCore:
                 self.logger.warning(f"{plugin_format} doesn't implement search")
                 continue
             except Exception as e:
-                self.logger.error(f"Exception while search {query} on remote repo: {str(e)}")
+                self.logger.error(
+                    f"Exception while search {query} on remote repo: {str(e)}"
+                )
                 continue
         return apps
 
-    def install(self, query_or_path: str, install_format: AppFormat, launch: bool = False) -> bool:
+    def install(
+        self, query_or_path: str, install_format: AppFormat, launch: bool = False
+    ) -> bool:
         try:
             result = self.plugins[install_format].install(query_or_path, launch)
         except NotImplementedError:
@@ -85,7 +97,9 @@ class AppHubCore:
         exact = [a for a in matches if a.name.lower() == query.lower()]
         return exact[0] if exact else (matches[0] if matches else None)
 
-    def storage(self, formats: list[AppFormat] | None = None, top: int | None = None) -> list[AppManifest]:
+    def storage(
+        self, formats: list[AppFormat] | None = None, top: int | None = None
+    ) -> list[AppManifest]:
         apps = self.list_apps(formats=formats)
         apps = sorted(apps, key=lambda a: a.size_bytes or 0, reverse=True)
         if top is not None:

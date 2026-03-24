@@ -5,6 +5,7 @@ import shutil
 from apphub.core.exceptions import AppHubError, PluginNotAvailableError
 from apphub.core.models import DistroInfo, AppFormat
 
+
 @lru_cache(maxsize=1)
 def detect_distro_info() -> DistroInfo:
     try:
@@ -19,7 +20,8 @@ def detect_distro_info() -> DistroInfo:
                     version_id = line.strip().split("=", 1)[1].strip('"').lower()
             return DistroInfo(name=name, id=name_id, version_id=version_id)
     except FileNotFoundError:
-        raise AppHubError(f"Unable to locate /etc/os-release.") from None
+        raise AppHubError("Unable to locate /etc/os-release.") from None
+
 
 def detect_format(path: str) -> AppFormat:
     if not Path(path).exists:
@@ -28,7 +30,10 @@ def detect_format(path: str) -> AppFormat:
     try:
         return AppFormat("apt" if suffix == "deb" else suffix)
     except ValueError:
-        raise PluginNotAvailableError(f"Plugin Not Available for this format : {suffix}") from None
+        raise PluginNotAvailableError(
+            f"Plugin Not Available for this format : {suffix}"
+        ) from None
+
 
 def is_cmd_available(cmd: str) -> bool:
     return shutil.which(cmd) is not None

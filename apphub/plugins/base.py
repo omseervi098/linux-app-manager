@@ -8,7 +8,6 @@ from apphub.core.utils import detect_distro_info
 
 
 class PluginBase(ABC):
-
     def __init__(self) -> None:
         self.logger: Logger = get_logger(self.__class__.__name__)
         self.distro_info: DistroInfo = detect_distro_info()
@@ -31,17 +30,15 @@ class PluginBase(ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support search()"
         )
-    
+
     def install(self, query_or_path: str, launch: bool) -> bool:
         """Implement this to install app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support install()"
         )
-    
+
     def uninstall(self, app_name: str) -> bool:
         """Implement this to uninstall app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support uninstall()"
         )
-    
-    

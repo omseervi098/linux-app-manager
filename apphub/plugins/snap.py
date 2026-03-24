@@ -34,7 +34,9 @@ class SnapPlugin(PluginBase):
             has_desktop = False
             try:
                 if desktop_dir.exists():
-                    has_desktop = any(f.suffix == ".desktop" for f in desktop_dir.iterdir())
+                    has_desktop = any(
+                        f.suffix == ".desktop" for f in desktop_dir.iterdir()
+                    )
             except (OSError, PermissionError):
                 pass
             category = AppCategory.DESKTOP if has_desktop else AppCategory.CLI
@@ -84,7 +86,9 @@ class SnapPlugin(PluginBase):
     def search(self, query: str) -> list[AppManifest]:
         apps = []
         try:
-            result = subprocess.run(["snap", "find", query], capture_output=True, text=True)
+            result = subprocess.run(
+                ["snap", "find", query], capture_output=True, text=True
+            )
             lines = result.stdout.strip().split("\n")
             if not lines or "No matching snaps" in lines[0]:
                 return apps
@@ -128,7 +132,7 @@ class SnapPlugin(PluginBase):
             if result.returncode == 0 and result.stdout:
                 return self._parse_snap_info(result.stdout, path)
 
-            return self._inspect_snap_yaml(path) # Fallback
+            return self._inspect_snap_yaml(path)  # Fallback
 
         except Exception as e:
             self.logger.error(f"Snap inspect error: {str(e)}")
@@ -161,7 +165,6 @@ class SnapPlugin(PluginBase):
             size_bytes=size_bytes,
             category=AppCategory.DESKTOP,
         )
-
 
     def _inspect_snap_yaml(self, path: str) -> AppManifest | None:
         try:

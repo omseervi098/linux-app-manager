@@ -17,7 +17,9 @@ def configure_logging(force: bool = False) -> logging.Logger:
     if force:
         logger.handlers.clear()
 
-    level = getattr(logging, os.getenv("APPHUB_LOG_LEVEL", "DEBUG").upper(), DEFAULT_LEVEL)
+    level = getattr(
+        logging, os.getenv("APPHUB_LOG_LEVEL", "DEBUG").upper(), DEFAULT_LEVEL
+    )
     logger.setLevel(level)
     logger.propagate = False
 
