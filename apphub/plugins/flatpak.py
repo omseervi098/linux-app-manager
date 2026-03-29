@@ -239,5 +239,19 @@ class FlatpakPlugin(PluginBase):
 
             return True
 
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Flatpak install failed: {e}")
             raise InstallError(f"Flatpak installation failed: {query_or_path}")
+
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        if not clean_uninstall:
+            cmd = ["flatpak", "uninstall", app_info.name]
+        else:
+            cmd = ["flatpak", "uninstall", app_info.name, "--delete-data",
+                   "&&", "flatpak", "uninstall", "--unused"]
+        try:
+            subprocess.run(cmd, check=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Flatpak uninstall failed : {e}")
+            return False

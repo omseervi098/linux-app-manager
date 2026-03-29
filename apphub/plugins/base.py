@@ -37,7 +37,7 @@ class PluginBase(ABC):
             f"{self.__class__.__name__} does not support install()"
         )
 
-    def uninstall(self, app_name: str) -> bool:
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         """Implement this to uninstall app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support uninstall()"

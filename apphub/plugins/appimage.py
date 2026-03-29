@@ -334,3 +334,39 @@ class AppImagePlugin(PluginBase):
         except Exception as e:
             self.logger.error(f"Failed to create desktop entry: {e}")
             raise
+
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        apps_dir = Path.home() / "Applications"
+        app_path = apps_dir / app_info.name
+
+        if app_path.exists():
+            try:
+                app_path.unlink()
+                self.logger.info(f"Removed AppImage: {app_path}")
+            except Exception as e:
+                self.logger.error(f"Failed to remove AppImage: {e}")
+                return False
+
+        if not clean_uninstall:
+            return True
+
+        desktop_dir = Path.home() / ".local/share/applications"
+        desktop_file = desktop_dir / f"apphub-{app_info.name}.desktop"
+
+        if desktop_file.exists():
+            try:
+                desktop_file.unlink()
+                self.logger.info(f"Removed desktop entry: {desktop_file}")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove desktop entry: {e}")
+
+        icon_dir = Path.home() / ".local/share/apphub/icons"
+        if icon_dir.exists():
+            try:
+                for icon in icon_dir.glob(f"appimage_{app_info.name}*"):
+                    icon.unlink()
+                    self.logger.info(f"Removed icon: {icon}")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove icons: {e}")
+
+        return True

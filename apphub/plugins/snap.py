@@ -216,17 +216,18 @@ class SnapPlugin(PluginBase):
                 subprocess.Popen([query_or_path], start_new_session=True)
 
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Snap install failed: {e}")
             return False
 
-    def uninstall(self, app_name: str) -> bool:
-        installed_apps = self.list_apps()
-        # TODO: Rethink uninstall
-        if not any(app.name == app_name for app in installed_apps):
-            return False
-
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        if clean_uninstall:
+            cmd = ["sudo", "snap", "--purge", "remove", app_info.name]
+        else:
+            cmd = ["sudo", "snap", "remove", app_info.name]
         try:
-            subprocess.run(["sudo", "snap", "remove", app_name], check=True)
+            subprocess.run(cmd, check=True)
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Snap uninstall failed : {e}")
             return False

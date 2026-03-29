@@ -1,7 +1,7 @@
 from typing import Any, Dict
 from pathlib import Path
 
-from apphub.core.exceptions import InstallError
+from apphub.core.exceptions import InstallError, UninstallError
 from apphub.core.models import AppFormat, AppManifest
 from apphub.core.utils import detect_distro_info, detect_format
 from apphub.core.logger import get_logger
@@ -14,6 +14,7 @@ from apphub.plugins.snap import SnapPlugin
 
 class AppHubCore:
     plugins: Dict[AppFormat, Any] = {
+        AppFormat.DEBIAN: AptPlugin(),
         AppFormat.SNAP: SnapPlugin(),
         AppFormat.FLATPAK: FlatpakPlugin(),
         AppFormat.APPIMAGE: AppImagePlugin(),
@@ -70,8 +71,14 @@ class AppHubCore:
             raise InstallError(f"Installation Error: {str(e)}") from None
         return result
 
-    def uninstall(self, name: str) -> bool:
-        pass
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        try:
+            result = self.plugins[app_info.format].uninstall(app_info, clean_uninstall)
+        except NotImplementedError:
+             raise
+        except Exception as e:
+            raise UninstallError(f"Installation Error: {str(e)}") from None
+        return result
 
     def list_apps(
         self,

@@ -269,3 +269,16 @@ class AptPlugin(PluginBase):
             self.logger.warning(f"APT list_apps failed : {e}")
 
         return apps
+
+    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        if clean_uninstall:
+            cmd = ["sudo", "apt", "purge", app_info.name, "-y",
+                   "&&" , "sudo", "apt", "autoremove", "-y"]
+        else:
+            cmd = ["sudo", "apt", "purge", app_info.name, "-y"]
+        try:
+            subprocess.run(cmd, check=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"APT uninstall failed : {e}")
+            return False
