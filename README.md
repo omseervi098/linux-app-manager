@@ -4,6 +4,10 @@ AppHub Terminal is a terminal-based application management tool for Linux.
 It provides a unified interface to interact with various package
 managers and applications.
 
+
+⚠️  **Work in Progress**  
+This project is under development. Expect bugs, breaking changes, and incomplete features.
+
 ## Features
 
 - **Multi-backend Support**: Manage applications from different sources. Currently it supports follwing formats.
@@ -123,10 +127,6 @@ apphub history -f flatpak         # Filter by format
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
 
 Please make sure to update tests as appropriate.
-
-## Contact
-
-For any questions or feedback, please open an issue on GitHub.
 
 ## License
 
