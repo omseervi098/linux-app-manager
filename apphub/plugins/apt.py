@@ -272,8 +272,18 @@ class AptPlugin(PluginBase):
 
     def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         if clean_uninstall:
-            cmd = ["sudo", "apt", "purge", app_info.name, "-y",
-                   "&&" , "sudo", "apt", "autoremove", "-y"]
+            cmd = [
+                "sudo",
+                "apt",
+                "purge",
+                app_info.name,
+                "-y",
+                "&&",
+                "sudo",
+                "apt",
+                "autoremove",
+                "-y",
+            ]
         else:
             cmd = ["sudo", "apt", "purge", app_info.name, "-y"]
         try:

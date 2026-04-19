@@ -166,7 +166,12 @@ def install(
 def uninstall(
     name: str = typer.Argument(..., help="Name of the application to uninstall"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Auto confirm installation"),
-    clean_uninstall: bool =  typer.Option(False, "--clean", "-c", help="Clean Uninstall, remove data associated with application")
+    clean_uninstall: bool = typer.Option(
+        False,
+        "--clean",
+        "-c",
+        help="Clean Uninstall, remove data associated with application",
+    ),
 ):
     """Uninstall an installed application."""
     results = hub.list_apps(query=name)
@@ -178,13 +183,17 @@ def uninstall(
         app_info = results[0]
         console.print(format_app_panel(app_info))
     else:
-        console.print(f"[yellow]Found multiple applications matching '{name}':[/yellow]")
+        console.print(
+            f"[yellow]Found multiple applications matching '{name}':[/yellow]"
+        )
         for idx, app in enumerate(results, start=1):
             desc = app.description or "No description"
-            console.print(f"[cyan][{idx}] | {app.name} ({app.format.value}) | {desc}[/cyan]")
+            console.print(
+                f"[cyan][{idx}] | {app.name} ({app.format.value}) | {desc}[/cyan]"
+            )
 
         choice: int = typer.prompt(
-            "Select an application to install (number)", type=int
+            "Select an application to uninstall (number)", type=int
         )
         if choice < 1 or choice > len(results):
             console.print("[red]Invalid selection.[/red]")
@@ -194,9 +203,9 @@ def uninstall(
         console.print(format_app_panel(app_info))
 
     if not yes:
-        confirm = typer.confirm("Install this application?")
+        confirm = typer.confirm("Uninstall this application?")
         if not confirm:
-            print("Installation cancelled.")
+            print("Uninstallation cancelled.")
             raise typer.Exit()
 
     success = hub.uninstall(app_info, clean_uninstall)

@@ -75,7 +75,7 @@ class AppHubCore:
         try:
             result = self.plugins[app_info.format].uninstall(app_info, clean_uninstall)
         except NotImplementedError:
-             raise
+            raise
         except Exception as e:
             raise UninstallError(f"Installation Error: {str(e)}") from None
         return result

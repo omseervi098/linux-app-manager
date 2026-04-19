@@ -247,8 +247,16 @@ class FlatpakPlugin(PluginBase):
         if not clean_uninstall:
             cmd = ["flatpak", "uninstall", app_info.name]
         else:
-            cmd = ["flatpak", "uninstall", app_info.name, "--delete-data",
-                   "&&", "flatpak", "uninstall", "--unused"]
+            cmd = [
+                "flatpak",
+                "uninstall",
+                app_info.name,
+                "--delete-data",
+                "&&",
+                "flatpak",
+                "uninstall",
+                "--unused",
+            ]
         try:
             subprocess.run(cmd, check=True)
             return True
