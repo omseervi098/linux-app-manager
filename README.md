@@ -1,6 +1,6 @@
-# AppHub Terminal
+# AppHub CLI
 
-AppHub Terminal is a terminal-based application management tool for Linux.
+AppHub CLI is a terminal-based application management tool for Linux.
 It provides a unified interface to interact with various package
 managers and applications.
 
