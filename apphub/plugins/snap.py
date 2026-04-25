@@ -1,10 +1,9 @@
-import subprocess
 import yaml
 import os
 from pathlib import Path
 
 from apphub.core.models import AppCategory, AppFormat, AppManifest
-from apphub.core.utils import is_cmd_available
+from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
 
@@ -53,11 +52,11 @@ class SnapPlugin(PluginBase):
             pass
         return None
 
-    def list_apps(self) -> list[AppManifest]:
+    async def list_apps(self) -> list[AppManifest]:
         apps = []
         try:
-            result = subprocess.run(["snap", "list"], capture_output=True, text=True)
-            for line in result.stdout.strip().split("\n")[1:]:
+            _, stdout, _ = await run_cmd("snap", "list")
+            for line in stdout.strip().split("\n")[1:]:
                 parts = line.split()
                 if len(parts) < 6:
                     continue
@@ -83,13 +82,11 @@ class SnapPlugin(PluginBase):
             pass
         return apps
 
-    def search(self, query: str) -> list[AppManifest]:
+    async def search(self, query: str) -> list[AppManifest]:
         apps = []
         try:
-            result = subprocess.run(
-                ["snap", "find", query], capture_output=True, text=True
-            )
-            lines = result.stdout.strip().split("\n")
+            _, stdout, _ = await run_cmd("snap", "find", query)
+            lines = stdout.strip().split("\n")
             if not lines or "No matching snaps" in lines[0]:
                 return apps
 
@@ -121,18 +118,14 @@ class SnapPlugin(PluginBase):
             pass
         return apps
 
-    def inspect(self, path: str) -> AppManifest | None:
+    async def inspect(self, path: str) -> AppManifest | None:
         try:
-            result = subprocess.run(
-                ["snap", "info", path],
-                capture_output=True,
-                text=True,
-            )
+            code, stdout, _ = await run_cmd("snap", "info", path)
 
-            if result.returncode == 0 and result.stdout:
-                return self._parse_snap_info(result.stdout, path)
+            if code == 0 and stdout:
+                return self._parse_snap_info(stdout, path)
 
-            return self._inspect_snap_yaml(path)  # Fallback
+            return await self._inspect_snap_yaml(path)  # Fallback
 
         except Exception as e:
             self.logger.error(f"Snap inspect error: {str(e)}")
@@ -166,20 +159,16 @@ class SnapPlugin(PluginBase):
             category=AppCategory.DESKTOP,
         )
 
-    def _inspect_snap_yaml(self, path: str) -> AppManifest | None:
+    async def _inspect_snap_yaml(self, path: str) -> AppManifest | None:
         try:
             if not is_cmd_available("unsquashfs"):
                 return None
-            result = subprocess.run(
-                ["unsquashfs", "-n", "-cat", path, "meta/snap.yaml"],
-                capture_output=True,
-                text=True,
-            )
+            code, stdout, _ = await run_cmd("unsquashfs", "-n", "-cat", path, "meta/snap.yaml")
 
-            if result.returncode != 0 or not result.stdout:
+            if code != 0 or not stdout:
                 return None
 
-            data = yaml.safe_load(result.stdout)
+            data = yaml.safe_load(stdout)
 
             name = data.get("name")
             version = data.get("version")
@@ -201,7 +190,7 @@ class SnapPlugin(PluginBase):
             self.logger.error(f"Snap yaml inspect error: {str(e)}")
             return None
 
-    def install(self, query_or_path: str, launch: bool) -> bool:
+    async def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path)
 
         if path.exists():
@@ -209,25 +198,28 @@ class SnapPlugin(PluginBase):
         else:
             cmd = ["sudo", "snap", "install", query_or_path]
 
-        try:
-            subprocess.run(cmd, check=True)
-
-            if launch and not path.exists():
-                subprocess.Popen([query_or_path], start_new_session=True)
-
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Snap install failed: {e}")
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0:
+            self.logger.error(f"Snap install failed: {stderr}")
             return False
 
-    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+        if launch and not path.exists():
+            code_launch, _, stderr_launch = await run_cmd(query_or_path)
+            if code_launch != 0:
+                self.logger.error(f"Snap Launch failed: {stderr_launch}")
+                return False
+
+        return True
+
+    async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         if clean_uninstall:
-            cmd = ["sudo", "snap", "--purge", "remove", app_info.name]
+            cmd = ["sudo", "snap", "remove", "--purge", app_info.name]
         else:
             cmd = ["sudo", "snap", "remove", app_info.name]
-        try:
-            subprocess.run(cmd, check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Snap uninstall failed : {e}")
+
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0 :
+            self.logger.error(f"Snap uninstall failed : {stderr}")
             return False
+
+        return True

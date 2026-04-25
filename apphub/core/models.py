@@ -45,6 +45,6 @@ class AppManifest(BaseModel):
 
 
 class DistroInfo(BaseModel):
-    name: str
-    id: str
-    version_id: str
+    name: str | None = None
+    id: str | None = None
+    version_id: str | None = None

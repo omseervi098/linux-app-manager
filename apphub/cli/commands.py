@@ -1,6 +1,6 @@
-from pathlib import Path
-
 import typer
+import asyncio
+from pathlib import Path
 from rich.console import Console
 
 from apphub.cli.formatters import (
@@ -35,9 +35,7 @@ def list_apps(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List installed applications across all package managers."""
-    apps = hub.list_apps(
-        query=query, formats=formats, exclude_defaults=exclude_defaults
-    )
+    apps = asyncio.run(hub.list_apps(query=query, formats=formats, exclude_defaults=exclude_defaults))
 
     if sort_by:
         apps = sorted(apps, key=lambda a: getattr(a, sort_by, "") or "")
@@ -65,7 +63,7 @@ def search(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Search available applications across supported registries."""
-    apps = hub.search(query=query, formats=formats)
+    apps = asyncio.run(hub.search(query=query, formats=formats))
 
     if count:
         console.print(f"[bold cyan]{len(apps)}[/bold cyan] application(s) found.")
@@ -90,7 +88,7 @@ def inspect(
     if not Path(file_path).exists():
         console.print(f"[red] No Application Found: '{file_path}'.[/red]")
 
-    app_info = hub.inspect(path=file_path)
+    app_info = asyncio.run(hub.inspect(path=file_path))
 
     if output_json:
         console.print(to_json_single(app_info))
@@ -114,12 +112,12 @@ def install(
     """Install an application (from registery or from file)."""
 
     if Path(path_or_name).exists():
-        app_info = hub.inspect(path=path_or_name)
+        app_info = asyncio.run(hub.inspect(path=path_or_name))
         console.print(format_app_panel(app_info))
         install_target = path_or_name
         install_format = app_info.format
     else:
-        results = hub.search(query=path_or_name, formats=formats)
+        results = asyncio.run(hub.search(query=path_or_name, formats=formats))
         if not results:
             console.print(f"[red]No application found matching '{path_or_name}'.[/red]")
             raise typer.Exit(1)
@@ -145,7 +143,7 @@ def install(
 
             app_info = results[choice - 1]
             console.print(format_app_panel(app_info))
-            install_target = app_info.id
+            install_target = app_info.name
             install_format = app_info.format
 
     if not yes:
@@ -154,9 +152,9 @@ def install(
             print("Installation cancelled.")
             raise typer.Exit()
 
-    result = hub.install(
+    result = asyncio.run(hub.install(
         query_or_path=install_target, install_format=install_format, launch=launch
-    )
+    ))
 
     if result:
         console.print("[green]Installation successful[/green]")
@@ -174,7 +172,7 @@ def uninstall(
     ),
 ):
     """Uninstall an installed application."""
-    results = hub.list_apps(query=name)
+    results = asyncio.run(hub.list_apps(query=name))
     if not results:
         console.print(f"[red]No application found matching '{name}'.[/red]")
         raise typer.Exit(1)
@@ -208,7 +206,7 @@ def uninstall(
             print("Uninstallation cancelled.")
             raise typer.Exit()
 
-    success = hub.uninstall(app_info, clean_uninstall)
+    success = asyncio.run(hub.uninstall(app_info, clean_uninstall))
     if success:
         console.print(f"[green]Successfully uninstalled {name}.[/green]")
     else:
@@ -223,7 +221,7 @@ def info(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Show detailed information about an application."""
-    app_info = hub.info(query=name)
+    app_info = asyncio.run(hub.info(query=name))
 
     if app_info is None:
         console.print(f"[red]No application found matching '{name}'.[/red]")
@@ -244,7 +242,7 @@ def storage(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Show disk usage by installed applications."""
-    apps = hub.storage(formats=formats, top=top)
+    apps = asyncio.run(hub.storage(formats=formats, top=top))
 
     if output_json:
         console.print(to_json(apps))

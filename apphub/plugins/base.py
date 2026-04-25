@@ -13,31 +13,31 @@ class PluginBase(ABC):
         self.distro_info: DistroInfo = detect_distro_info()
         super().__init__()
 
-    def list_apps(self) -> list[AppManifest]:
+    async def list_apps(self) -> list[AppManifest]:
         """Implement this to list apps"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support list_apps()"
         )
 
-    def inspect(self, path: Path) -> AppManifest:
+    async def inspect(self, path: Path) -> AppManifest:
         """Implement this to inspect app info from path"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support inspect()"
         )
 
-    def search(self, query: str) -> list[AppManifest]:
+    async def search(self, query: str) -> list[AppManifest]:
         """Implement this to search app over repository"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support search()"
         )
 
-    def install(self, query_or_path: str, launch: bool) -> bool:
+    async def install(self, query_or_path: str, launch: bool) -> bool:
         """Implement this to install app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support install()"
         )
 
-    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+    async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         """Implement this to uninstall app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support uninstall()"

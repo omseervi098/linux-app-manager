@@ -1,10 +1,9 @@
 import re
 import os
-import subprocess
 from pathlib import Path
 
-from apphub.core.exceptions import InstallError
 from apphub.core.models import AppCategory, AppFormat, AppManifest
+from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
 _SIZE_UNITS = {
@@ -46,14 +45,10 @@ def _categorize_flatpak(ref: str, app_id: str) -> AppCategory:
 
 
 class FlatpakPlugin(PluginBase):
-    def _get_exact_size(self, app_id: str) -> int | None:
+    async def _get_exact_size(self, app_id: str) -> int | None:
         try:
-            result = subprocess.run(
-                ["flatpak", "info", "--show-size", app_id],
-                capture_output=True,
-                text=True,
-            )
-            output = result.stdout.strip()
+            code, stdout, stderr = await run_cmd("flatpak", "info", "--show-size", app_id)
+            output = stdout.strip()
 
             if output.isdigit():
                 return int(output)
@@ -64,17 +59,13 @@ class FlatpakPlugin(PluginBase):
             self.logger.error(f"Flatpak Error while extracting size: {str(e)}")
             return None
 
-    def list_apps(self) -> list[AppManifest]:
+    async def list_apps(self) -> list[AppManifest]:
         apps = []
 
         try:
-            results = subprocess.run(
-                ["flatpak", "list"],
-                capture_output=True,
-                text=True,
-            )
+            _, stdout, stderr = await run_cmd("flatpak", "list")
 
-            for line in results.stdout.strip().split("\n"):
+            for line in stdout.strip().split("\n"):
                 if not line:
                     continue
 
@@ -87,13 +78,11 @@ class FlatpakPlugin(PluginBase):
                 version = parts[2]
                 origin = parts[3]
                 description = parts[4].strip() if len(parts) > 4 else None
-                size_str = parts[5].strip() if len(parts) > 5 else None
+                size_str = parts[5].strip() if len(parts) > 5 else "-"
                 ref = parts[6].strip() if len(parts) > 6 else ""
 
                 # Prefer exact size
-                size_bytes = self._get_exact_size(app_id) or (
-                    _parse_flatpak_size(size_str) if size_str else None
-                )
+                size_bytes = await self._get_exact_size(app_id) or _parse_flatpak_size(size_str)
 
                 apps.append(
                     AppManifest(
@@ -115,20 +104,16 @@ class FlatpakPlugin(PluginBase):
 
         return apps
 
-    def _inspect_flatpak_bundle(self, path: str) -> AppManifest | None:
+    async def _inspect_flatpak_bundle(self, path: str) -> AppManifest | None:
         try:
-            result = subprocess.run(
-                ["flatpak", "info", path],
-                capture_output=True,
-                text=True,
-            )
+            code, stdout, stderr = await run_cmd("flatpak", "info", path)
 
-            if result.returncode != 0:
+            if code != 0:
                 return None
 
             name = app_id = version = None
 
-            for line in result.stdout.splitlines():
+            for line in stdout.splitlines():
                 if line.startswith("Name:"):
                     name = line.split(":", 1)[1].strip()
                 elif line.startswith("ID:"):
@@ -137,7 +122,7 @@ class FlatpakPlugin(PluginBase):
                     version = line.split(":", 1)[1].strip()
 
             return AppManifest(
-                name=name or app_id,
+                name=name or app_id or "unknown",
                 id=f"flatpak:{app_id}" if app_id else f"flatpak:{path}",
                 format=AppFormat.FLATPAK,
                 version=version or "unknown",
@@ -152,10 +137,10 @@ class FlatpakPlugin(PluginBase):
             self.logger.error(f"Flatpak bundle inspect error: {str(e)}")
             return None
 
-    def inspect(self, path: str) -> AppManifest | None:
+    async def inspect(self, path: str) -> AppManifest | None:
         try:
             if path.endswith(".flatpak"):
-                return self._inspect_flatpak_bundle(path)
+                return await self._inspect_flatpak_bundle(path)
 
             return None
 
@@ -163,16 +148,12 @@ class FlatpakPlugin(PluginBase):
             self.logger.error(f"Flatpak inspect error: {str(e)}")
             return None
 
-    def search(self, query: str) -> list[AppManifest]:
+    async def search(self, query: str) -> list[AppManifest]:
         apps = []
         try:
-            result = subprocess.run(
-                ["flatpak", "search", query],
-                capture_output=True,
-                text=True,
-            )
+            code, stdout, stderr = await run_cmd("flatpak", "search", query)
 
-            for line in result.stdout.strip().split("\n"):
+            for line in stdout.strip().split("\n"):
                 if not line:
                     continue
 
@@ -204,20 +185,10 @@ class FlatpakPlugin(PluginBase):
 
         return apps
 
-    def install(self, query_or_path: str, launch: bool) -> bool:
+    async def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path)
 
-        subprocess.run(
-            [
-                "flatpak",
-                "remote-add",
-                "--if-not-exists",
-                "flathub",
-                "https://dl.flathub.org/repo/flathub.flatpakrepo",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        await run_cmd("flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo")
 
         if path.is_file() and path.exists():
             cmd = ["flatpak", "install", "-y", str(path.resolve())]
@@ -225,25 +196,20 @@ class FlatpakPlugin(PluginBase):
             app_id = query_or_path.lstrip("flatpak:")
             cmd = ["flatpak", "install", "-y", "flathub", app_id]
 
-        try:
-            subprocess.run(cmd, check=True)
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0:
+            self.logger.error(f"Flatpak install failed: {stderr}")
+            return False
 
-            # Optional launch
-            if launch and query_or_path:
-                subprocess.Popen(
-                    ["flatpak", "run", query_or_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+        if launch and query_or_path:
+            code_launch, _, stderr_launch = await run_cmd("flatpak", "run", query_or_path)
+            if code_launch != 0:
+                self.logger.error(f"Flatpak launch failed: {stderr_launch}")
+                return False
 
-            return True
+        return True
 
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Flatpak install failed: {e}")
-            raise InstallError(f"Flatpak installation failed: {query_or_path}")
-
-    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+    async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         if not clean_uninstall:
             cmd = ["flatpak", "uninstall", app_info.name]
         else:
@@ -257,9 +223,8 @@ class FlatpakPlugin(PluginBase):
                 "uninstall",
                 "--unused",
             ]
-        try:
-            subprocess.run(cmd, check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Flatpak uninstall failed : {e}")
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0:
+            self.logger.error(f"Flatpak uninstall failed: {stderr}")
             return False
+        return True

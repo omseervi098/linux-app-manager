@@ -1,11 +1,9 @@
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
-from apphub.core.exceptions import PluginNotAvailableError
 from apphub.core.models import AppCategory, AppFormat, AppManifest, AppRuntime
-from apphub.core.utils import is_cmd_available
+from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
 
@@ -49,25 +47,21 @@ class AptPlugin(PluginBase):
         section_key = section.rsplit("/", 1)[-1] if "/" in section else section
         return cls._SECTION_MAP.get(section_key, AppCategory.CLI)
 
-    def _get_package_metadata(
+    async def _get_package_metadata(
         self, name: str
     ) -> tuple[str | None, str | None, int | None, str | None]:
         try:
-            result = subprocess.run(
-                [
-                    "dpkg-query",
-                    "-W",
-                    "-f=${Version}|${Maintainer}|${Installed-Size}|${binary:Summary}",
-                    name,
-                ],
-                capture_output=True,
-                text=True,
+            code, stdout, _ = await run_cmd(
+                "dpkg-query",
+                "-W",
+                "-f=${Version}|${Maintainer}|${Installed-Size}|${binary:Summary}",
+                name
             )
 
-            if result.returncode != 0:
+            if code != 0:
                 return None, None, None, None
 
-            parts = result.stdout.strip().split("|", maxsplit=3)
+            parts = stdout.strip().split("|", maxsplit=3)
 
             version = parts[0] if len(parts) > 0 else None
             publisher = parts[1] if len(parts) > 1 else None
@@ -82,11 +76,11 @@ class AptPlugin(PluginBase):
             self.logger.warning(f"Apt Failed to get package metadata: {e}")
             return None, None, None, None
 
-    def inspect(self, path: Path) -> AppManifest:
+    async def inspect(self, path: Path) -> AppManifest:
         if not path.exists():
             raise FileNotFoundError(f".deb not found: {path}")
 
-        MAX_LIST_SIZE = 100 * 1024 * 1024
+        max_list_size = 100 * 1024 * 1024
 
         fields = [
             "Package",
@@ -97,20 +91,15 @@ class AptPlugin(PluginBase):
             "Installed-Size",
         ]
 
-        result = subprocess.run(
-            ["dpkg-deb", "-f", str(path)] + fields,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        _, stdout, _ = await run_cmd(*(["dpkg-deb", "-f", str(path)] + fields))
         metadata = {}
-        for line in result.stdout.splitlines():
+        for line in stdout.splitlines():
             if ": " in line:
                 k, v = line.split(": ", 1)
                 metadata[k] = v
 
         installed_size = metadata.get("Installed-Size")
-        if installed_size and installed_size.isdigit():
+        if installed_size and isinstance(installed_size, str):
             size_bytes = int(installed_size) * 1024
         else:
             size_bytes = path.stat().st_size
@@ -119,19 +108,14 @@ class AptPlugin(PluginBase):
         runtime = AppRuntime.NATIVE
 
         file_size = path.stat().st_size
-        if file_size <= MAX_LIST_SIZE:
+        if file_size <= max_list_size:
             best_icon = None
             best_icon_size = 0
             names = set()
 
             try:
-                result = subprocess.run(
-                    ["dpkg-deb", "-c", str(path)],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                for line in result.stdout.splitlines():
+                _, stdout, _ = await run_cmd("dpkg-deb", "-c", str(path))
+                for line in stdout.splitlines():
                     parts = line.split()
                     if len(parts) < 6:
                         continue
@@ -170,11 +154,7 @@ class AptPlugin(PluginBase):
                 try:
                     with tempfile.TemporaryDirectory() as tmp:
                         tmp_path = Path(tmp)
-                        subprocess.run(
-                            ["dpkg-deb", "-x", str(path), tmp],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
+                        await run_cmd("dpkg-deb", "-x", str(path), tmp)
                         icon_file = tmp_path / best_icon.lstrip("./")
                         if icon_file.exists():
                             cache = Path.home() / ".local/share/apphub/icons"
@@ -198,7 +178,7 @@ class AptPlugin(PluginBase):
             runtime=runtime,
         )
 
-    def install(self, query_or_path: str, launch: bool) -> bool:
+    async def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path)
         if path.exists():
             cmd = ["sudo", "apt", "install", str(path.resolve()), "-y"]
@@ -206,39 +186,30 @@ class AptPlugin(PluginBase):
             cmd = []
             self.logger.error("APT install failed as search is not implemented")
 
-        app_detail = self.inspect(path=path)
-        try:
-            subprocess.run(cmd, check=True)
-            if launch:
-                files = subprocess.run(
-                    ["dpkg", "-L", app_detail.name],
-                    capture_output=True,
-                    text=True,
-                )
-
-                for line in files.stdout.splitlines():
-                    if line.endswith(".desktop"):
-                        desktop_id = Path(line).stem
-                        subprocess.Popen(["gtk-launch", desktop_id])
-                        break
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"APT install failed : {e}")
+        app_detail = await self.inspect(path=path)
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0:
+            self.logger.error(f"APT install failed: {stderr}")
             return False
+        if launch:
+            code_launch, stdout, stderr_launch = await run_cmd("dpkg", "-L", app_detail.name)
+            if code_launch != 0:
+                self.logger.error(f"Launch failed: {stderr}")
+                return False
+
+            for line in stdout.splitlines():
+                if line.endswith(".desktop"):
+                    desktop_id = Path(line).stem
+                    await run_cmd("gtk-launch", desktop_id)
+                    break
         return True
 
-    def list_apps(self) -> list[AppManifest]:
-        if not is_cmd_available("apt-mark"):
-            raise PluginNotAvailableError("apt")
-
+    async def list_apps(self) -> list[AppManifest]:
         apps = []
         try:
-            result = subprocess.run(
-                ["apt-mark", "showmanual"],
-                capture_output=True,
-                text=True,
-            )
+            _, stdout, _ = await run_cmd("apt-mark", "showmanual")
 
-            for name in result.stdout.strip().split("\n"):
+            for name in stdout.strip().split("\n"):
                 if not name:
                     continue
 
@@ -247,16 +218,14 @@ class AptPlugin(PluginBase):
                 ) or name.endswith(("-dbgsym", "-dbg", "-dev", "-doc")):
                     continue
 
-                version, publisher, size_bytes, description = (
-                    self._get_package_metadata(name)
-                )
+                version, publisher, size_bytes, description = await self._get_package_metadata(name)
 
                 apps.append(
                     AppManifest(
                         name=name,
                         id=f"apt:{name}",
                         format=AppFormat.DEBIAN,
-                        version=version,
+                        version=version or "-",
                         installed=True,
                         publisher=publisher,
                         description=description,
@@ -270,7 +239,7 @@ class AptPlugin(PluginBase):
 
         return apps
 
-    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+    async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         if clean_uninstall:
             cmd = [
                 "sudo",
@@ -286,9 +255,10 @@ class AptPlugin(PluginBase):
             ]
         else:
             cmd = ["sudo", "apt", "purge", app_info.name, "-y"]
-        try:
-            subprocess.run(cmd, check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"APT uninstall failed : {e}")
+
+        code, _, stderr = await run_cmd(*cmd)
+        if code != 0:
+            self.logger.error(f"APT uninstall failed : {stderr}")
             return False
+
+        return True

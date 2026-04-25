@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 import shutil
+import asyncio
 
 from apphub.core.exceptions import AppHubError, PluginNotAvailableError
 from apphub.core.models import DistroInfo, AppFormat
@@ -37,3 +38,19 @@ def detect_format(path: str) -> AppFormat:
 
 def is_cmd_available(cmd: str) -> bool:
     return shutil.which(cmd) is not None
+
+
+async def run_cmd(*cmd: str) -> tuple[int|None, str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    stdout, stderr = await proc.communicate()
+
+    return (
+        proc.returncode,
+        stdout.decode(),
+        stderr.decode(),
+    )

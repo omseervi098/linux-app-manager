@@ -1,11 +1,10 @@
 import contextlib
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 from apphub.core.models import AppFormat, AppManifest, AppRuntime
-from apphub.core.utils import is_cmd_available
+from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
 # Common locations where AppImages are stored
@@ -18,7 +17,7 @@ _SEARCH_DIRS = [
 
 
 class AppImagePlugin(PluginBase):
-    def list_apps(self) -> list[AppManifest]:
+    async def list_apps(self) -> list[AppManifest]:
         apps = []
         seen: set[str] = set()
 
@@ -43,7 +42,7 @@ class AppImagePlugin(PluginBase):
 
         return apps
 
-    def inspect(self, path: Path) -> AppManifest:
+    async def inspect(self, path: Path) -> AppManifest:
         if not path.exists():
             raise FileNotFoundError(f"AppImage file not found: {path}")
 
@@ -75,12 +74,8 @@ class AppImagePlugin(PluginBase):
             try:
                 if not os.access(path, os.X_OK):
                     path.chmod(path.stat().st_mode | 0o111)
-
-                offset = int(
-                    subprocess.check_output([str(path), "--appimage-offset"])
-                    .decode()
-                    .strip()
-                )
+                _, stdout, _ = await run_cmd(str(path), "--appimage-offset")
+                offset = int(stdout.strip())
 
                 import configparser
                 import tempfile
@@ -88,8 +83,7 @@ class AppImagePlugin(PluginBase):
                 with tempfile.TemporaryDirectory() as tmp:
                     tmp_path = Path(tmp)
 
-                    subprocess.run(
-                        [
+                    await run_cmd(
                             "unsquashfs",
                             "-f",
                             "-q",
@@ -109,10 +103,6 @@ class AppImagePlugin(PluginBase):
                             "*.jar",
                             "*.json",
                             "*.asar",
-                        ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
                     )
                     files = [f for f in tmp_path.rglob("*") if f.is_file()]
                     names = {f.name for f in files}
@@ -249,7 +239,7 @@ class AppImagePlugin(PluginBase):
             runtime=runtime,
         )
 
-    def install(self, query_or_path: str, launch: bool) -> bool:
+    async def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path).resolve()
         if not path.exists():
             self.logger.error(f"Path does not exist: {path}")
@@ -274,28 +264,23 @@ class AppImagePlugin(PluginBase):
             self.logger.error(f"Failed to set executable permission: {e}")
             raise
 
-        self._create_desktop_entry(dest_path)
+        await self._create_desktop_entry(dest_path)
 
         if launch:
             try:
                 # Use gtk-launch to ensure it uses the desktop entry logic
                 desktop_id = f"apphub-{dest_path.stem}.desktop"
-                subprocess.Popen(
-                    ["gtk-launch", desktop_id],
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                await run_cmd("gtk-launch", desktop_id)
             except Exception as e:
                 self.logger.error(f"Failed to launch app: {e}")
 
         return True
 
-    def _create_desktop_entry(self, app_path: Path):
+    async def _create_desktop_entry(self, app_path: Path):
         desktop_dir = Path.home() / ".local/share/applications"
         desktop_dir.mkdir(parents=True, exist_ok=True)
 
-        manifest = self.inspect(app_path)
+        manifest = await self.inspect(app_path)
 
         name = manifest.name
         icon = manifest.icon or "utilities-terminal"
@@ -324,18 +309,14 @@ class AppImagePlugin(PluginBase):
         try:
             desktop_file.write_text("\n".join(content) + "\n")
 
-            subprocess.run(
-                ["update-desktop-database", str(desktop_dir)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            await run_cmd("update-desktop-database", str(desktop_dir))
 
             self.logger.info(f"Created desktop entry: {desktop_file}")
         except Exception as e:
             self.logger.error(f"Failed to create desktop entry: {e}")
             raise
 
-    def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
+    async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         apps_dir = Path.home() / "Applications"
         app_path = apps_dir / app_info.name
 
