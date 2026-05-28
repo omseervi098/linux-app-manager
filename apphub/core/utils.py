@@ -25,7 +25,7 @@ def detect_distro_info() -> DistroInfo:
 
 
 def detect_format(path: str) -> AppFormat:
-    if not Path(path).exists:
+    if not Path(path).exists():
         raise AppHubError(f"Path Doesn't Exists : {path}.") from None
     suffix = Path(path).suffix[1:].lower()
     try:
@@ -41,8 +41,12 @@ def is_cmd_available(cmd: str) -> bool:
 
 
 async def run_cmd(*cmd: str) -> tuple[int|None, str, str]:
+    cmd_list = list(cmd)
+    if cmd_list and cmd_list[0] == "sudo" and "-n" not in cmd_list:
+        cmd_list.insert(1, "-n")
+
     proc = await asyncio.create_subprocess_exec(
-        *cmd,
+        *cmd_list,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

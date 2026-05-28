@@ -87,6 +87,7 @@ def inspect(
 
     if not Path(file_path).exists():
         console.print(f"[red] No Application Found: '{file_path}'.[/red]")
+        raise typer.Exit(1)
 
     app_info = asyncio.run(hub.inspect(path=file_path))
 
@@ -204,7 +205,7 @@ def uninstall(
         confirm = typer.confirm("Uninstall this application?")
         if not confirm:
             print("Uninstallation cancelled.")
-            raise typer.Exit()
+            raise typer.Exit(1)
 
     success = asyncio.run(hub.uninstall(app_info, clean_uninstall))
     if success:

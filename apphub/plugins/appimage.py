@@ -33,7 +33,7 @@ class AppImagePlugin(PluginBase):
                     seen.add(entry.name)
 
                     with contextlib.suppress(Exception):
-                        apps.append(self.inspect(entry))
+                        apps.append(await self.inspect(entry))
             except PermissionError as e:
                 self.logger.warning(
                     f"Permission Error while listing apps across {directory}: {str(e)}"
@@ -318,7 +318,8 @@ class AppImagePlugin(PluginBase):
 
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         apps_dir = Path.home() / "Applications"
-        app_path = apps_dir / app_info.name
+        app_filename = app_info.id.split(":", 1)[1] if ":" in app_info.id else app_info.name
+        app_path = apps_dir / app_filename
 
         if app_path.exists():
             try:
@@ -332,7 +333,7 @@ class AppImagePlugin(PluginBase):
             return True
 
         desktop_dir = Path.home() / ".local/share/applications"
-        desktop_file = desktop_dir / f"apphub-{app_info.name}.desktop"
+        desktop_file = desktop_dir / f"apphub-{app_path.stem}.desktop"
 
         if desktop_file.exists():
             try:
@@ -344,7 +345,7 @@ class AppImagePlugin(PluginBase):
         icon_dir = Path.home() / ".local/share/apphub/icons"
         if icon_dir.exists():
             try:
-                for icon in icon_dir.glob(f"appimage_{app_info.name}*"):
+                for icon in icon_dir.glob(f"appimage_{app_path.stem}*"):
                     icon.unlink()
                     self.logger.info(f"Removed icon: {icon}")
             except Exception as e:
