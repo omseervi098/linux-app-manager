@@ -3,7 +3,7 @@ from typing import Any, Dict
 from pathlib import Path
 
 from apphub.core.exceptions import InstallError, UninstallError
-from apphub.core.models import AppFormat, AppManifest
+from apphub.core.models import AppFormat, AppManifest, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import detect_distro_info, detect_format, is_cmd_available
 from apphub.core.logger import get_logger
 
@@ -124,3 +124,23 @@ class AppHubCore:
         if top is not None:
             apps = apps[:top]
         return apps
+
+    async def history(
+            self, formats: list[AppFormat] | None = None,
+            action_categories: list[LifeCycleEvent] | None = None,
+    ) -> list[HistoryRecords]:
+        history_records, tasks = [], []
+        for plugin_format, plugin in self.plugins.items():
+            if formats and plugin_format not in formats:
+                continue
+            tasks.append(plugin.history(action_categories=action_categories))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"List Error: {str(result)}")
+                continue
+            if not result:
+                continue
+            history_records.extend(result)
+        return history_records

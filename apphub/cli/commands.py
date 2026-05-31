@@ -6,11 +6,11 @@ from rich.console import Console
 from apphub.cli.formatters import (
     format_app_panel,
     format_app_table,
-    format_storage_table,
+    format_storage_table, format_history_table,
 )
 from apphub.cli.serializers import to_json, to_json_single
 from apphub.core.hub import AppHubCore
-from apphub.core.models import AppFormat
+from apphub.core.models import AppFormat, LifeCycleEvent
 
 cli_app = typer.Typer(no_args_is_help=True)
 hub = AppHubCore()
@@ -230,8 +230,8 @@ def info(
 
     if output_json:
         console.print(to_json_single(app_info))
-    else:
-        console.print(format_app_panel(app_info))
+        return
+    console.print(format_app_panel(app_info))
 
 
 @cli_app.command(name="storage")
@@ -257,10 +257,31 @@ def history(
     formats: list[AppFormat] | None = typer.Option(
         None, "--format", "-f", help="Filter by format"
     ),
-    count: bool = typer.Option(False, "--count", "-n", help="Print only the count"),
+    action_categories: list[LifeCycleEvent] | None = typer.Option(
+        None, "--action-categories", "-a", help="Filter by action categories"
+    ),
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+    order_by: str = typer.Option(
+        None, "--sort", "-s", help="Sort by field: name, version, timestamp"
+    ),
+    descending: bool = typer.Option(
+        False, "--desc", "-d", help="Sort Descending"
+    ),
+    top: int = typer.Option(
+        None, "--top", "-t", help="Show top N records"
+    )
 ):
     """Show installation/uninstallation history."""
-    console.print(
-        "[yellow]history[/yellow] is not yet implemented. Requires a local history database."
-    )
+    history_result = asyncio.run(hub.history(formats=formats, action_categories=action_categories))
+
+    if order_by:
+        history_result.sort(key=lambda x: getattr(x, order_by, "") or "")
+    if descending:
+        history_result.reverse()
+    if top is not None:
+        history_result = history_result[:top]
+    if output_json:
+        console.print(to_json(history_result))
+        return
+
+    console.print(format_history_table(history_result))

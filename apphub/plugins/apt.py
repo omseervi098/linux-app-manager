@@ -1,8 +1,10 @@
 import shutil
 import tempfile
+import re
 from pathlib import Path
+from datetime import datetime
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest, AppRuntime
+from apphub.core.models import AppCategory, AppFormat, AppManifest, AppRuntime, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -35,7 +37,25 @@ class AptPlugin(PluginBase):
         "net": AppCategory.CLI,
         "python": AppCategory.CLI,
     }
+    INSTALL_OR_REMOVE_RE = re.compile(
+        r"(?P<name>[^:,]+):[^\s]+\s+\((?P<version>[^)]+)\)"
+    )
 
+    UPGRADE_RE = re.compile(
+        r"(?P<name>[^:,]+):[^\s]+\s+\((?P<old_version>[^,]+),\s*(?P<new_version>[^)]+)\)"
+    )
+
+    LOG_FILE_PATH = "/var/log/apt/history.log"
+    APT_LOG_KEYS = {
+        "start-date",
+        "end-date",
+        "commandline",
+        "requested-by",
+        "install",
+        "upgrade",
+        "remove",
+        "purge",
+    }
     @classmethod
     def _detect_category(cls, priority: str, section: str, name: str) -> AppCategory:
         if priority in ("required", "important", "essential"):
@@ -262,3 +282,100 @@ class AptPlugin(PluginBase):
             return False
 
         return True
+
+    @staticmethod
+    def __get_lifecycle_event(data: dict) -> LifeCycleEvent:
+        if "install" in data:
+            return LifeCycleEvent.INSTALLED
+        elif "remove" in data:
+            return LifeCycleEvent.UNINSTALLED
+        else:
+            return LifeCycleEvent.UPGRADED
+
+    def __parse_installed_or_uninstalled(self, entry: str):
+        return [
+            {
+                "app_name": m.group("name").lstrip(),
+                "app_id": m.group("name"),
+                "version_id": m.group("version"),
+            }
+            for m in self.INSTALL_OR_REMOVE_RE.finditer(entry)
+        ]
+
+    def __parse_upgraded(self, entry: str):
+        return [
+            {
+                "app_name": m.group("name").lstrip(),
+                "app_id": m.group("name"),
+                "version_id": m.group("new_version"),
+                "old_version_id": m.group("old_version"),
+            }
+            for m in self.UPGRADE_RE.finditer(entry)
+        ]
+
+    @staticmethod
+    def __parse_timestamp(start_date: str) -> datetime:
+        return datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
+
+    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+        path = Path(self.LOG_FILE_PATH)
+        history_records = []
+        if path.exists():
+            entries = path.read_text(encoding="utf-8").split("\n\n")
+            for entry in entries:
+                data = {}
+                current_key = None
+                for line in entry.splitlines():
+                    if ": " in line:
+                        key, value = line.split(": ", 1)
+                        key = key.lower()
+
+                        if key in self.APT_LOG_KEYS:
+                            data[key] = value
+                            current_key = key
+                            continue
+
+                    if current_key:
+                        data[current_key] += " " + line.strip()
+                timestamp = self.__parse_timestamp(data["start-date"])
+                if action_categories is None or LifeCycleEvent.INSTALLED in action_categories:
+                    for package in self.__parse_installed_or_uninstalled(data.get("install","")):
+                        history_records.append(
+                            HistoryRecords(
+                                timestamp=timestamp,
+                                format=AppFormat.DEBIAN,
+                                lifecycle_event=LifeCycleEvent.INSTALLED,
+                                app_name=package["app_name"],
+                                app_id=f"apt:{package['app_name']}",
+                                version_id=package["version_id"],
+                            )
+                        )
+                if action_categories is None or LifeCycleEvent.UNINSTALLED in action_categories:
+                    for package in self.__parse_installed_or_uninstalled(data.get("remove","")):
+                        history_records.append(
+                            HistoryRecords(
+                                timestamp=timestamp,
+                                format=AppFormat.DEBIAN,
+                                lifecycle_event=LifeCycleEvent.UNINSTALLED,
+                                app_name=package["app_name"],
+                                app_id=f"apt:{package['app_name']}",
+                                version_id=package["version_id"],
+                            )
+                        )
+                if action_categories is None or LifeCycleEvent.UPGRADED in action_categories:
+                    for package in self.__parse_upgraded(data.get("upgrade", "")):
+                        history_records.append(
+                            HistoryRecords(
+                                timestamp=timestamp,
+                                format=AppFormat.DEBIAN,
+                                lifecycle_event=LifeCycleEvent.UPGRADED,
+                                app_name=package["app_name"],
+                                app_id=f"apt:{package['app_name']}",
+                                version_id=package["version_id"],
+                                old_version_id=package["old_version_id"],
+                            )
+                        )
+        return history_records
+
+
+

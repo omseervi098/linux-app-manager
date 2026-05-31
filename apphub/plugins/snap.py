@@ -2,7 +2,7 @@ import yaml
 import os
 from pathlib import Path
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest
+from apphub.core.models import AppCategory, AppFormat, AppManifest, HistoryRecords, LifeCycleEvent
 from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -223,3 +223,6 @@ class SnapPlugin(PluginBase):
             return False
 
         return True
+
+    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+        pass

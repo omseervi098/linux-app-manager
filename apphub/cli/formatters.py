@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from apphub.core.models import AppManifest, AppRuntime
+from apphub.core.models import AppManifest, AppRuntime, HistoryRecords, LifeCycleEvent
 
 console = Console()
 
@@ -108,4 +108,30 @@ def format_storage_table(apps: list[AppManifest], top: int | None = None) -> Tab
     for app in ordered:
         table.add_row(app.name, app.format.value, _format_size(app.size_bytes))
 
+    return table
+
+def format_history_table(history_records: list[HistoryRecords], title: str = "HistoryRecords") -> Table:
+    """Styled Rich table for a list of HistoryRecords objects."""
+
+    table = Table(
+        title=title,
+        box=box.ROUNDED,
+        highlight=True,
+        show_lines=False,
+        header_style="bold cyan",
+    )
+    table.add_column("Name", style="bold white", min_width=20)
+    table.add_column("Format", style="yellow", justify="center")
+    table.add_column("Timestamp", style="magenta")
+    table.add_column("LifeCycle Event", style="red")
+    table.add_column("Version", style="green")
+
+    for record in history_records:
+        table.add_row(
+            record.app_name,
+            record.format.value,
+            record.timestamp.strftime("%B %d, %Y, %I:%M %p"),
+            record.lifecycle_event,
+            f"{record.old_version_id} -> {record.version_id}" if record.lifecycle_event == LifeCycleEvent.UPGRADED else record.version_id,
+        )
     return table

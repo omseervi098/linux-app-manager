@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -48,3 +49,19 @@ class DistroInfo(BaseModel):
     name: str | None = None
     id: str | None = None
     version_id: str | None = None
+
+
+class LifeCycleEvent(StrEnum):
+    INSTALLED = "installed"
+    UPGRADED = "upgraded"
+    UNINSTALLED = "uninstalled"
+
+
+class HistoryRecords(BaseModel):
+    timestamp: datetime
+    format: AppFormat
+    lifecycle_event: LifeCycleEvent
+    app_name: str | None
+    app_id: str | None = None
+    version_id: str | None = None
+    old_version_id: str | None = None

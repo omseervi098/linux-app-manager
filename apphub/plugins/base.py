@@ -3,7 +3,7 @@ from logging import Logger
 from pathlib import Path
 
 from apphub.core.logger import get_logger
-from apphub.core.models import AppManifest, DistroInfo
+from apphub.core.models import AppManifest, DistroInfo, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import detect_distro_info
 
 
@@ -41,4 +41,10 @@ class PluginBase(ABC):
         """Implement this to uninstall app"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support uninstall()"
+        )
+
+    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+        """Implement this to list app history"""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support history()"
         )
