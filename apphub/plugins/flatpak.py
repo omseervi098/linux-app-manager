@@ -1,8 +1,10 @@
 import re
 import os
+import asyncio
 from pathlib import Path
+from datetime import datetime
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest
+from apphub.core.models import AppCategory, AppFormat, AppManifest, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -228,3 +230,50 @@ class FlatpakPlugin(PluginBase):
             self.logger.error(f"Flatpak uninstall failed: {stderr}")
             return False
         return True
+
+    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+        code, stdout, stderr = await run_cmd(*["flatpak", "history", "--columns=time,change,application,commit,old-commit"])
+        if code != 0:
+            self.logger.error(f"Flatpak History Failed : {stderr}")
+            return []
+
+        change_map = {
+            "install": LifeCycleEvent.INSTALLED,
+            "update": LifeCycleEvent.UPGRADED,
+            "uninstall": LifeCycleEvent.UNINSTALLED,
+        }
+        records = []
+
+        for line in stdout.strip().splitlines():
+            if not line or line.startswith("Time"):
+                continue
+
+            parts = [item.strip() for item in line.split("\t")]
+            if len(parts) < 3:
+                continue
+
+            time_str, change_str, app_name = parts[0], parts[1], parts[2]
+            commit = parts[3] if len(parts) > 3 and parts[3] != "-" else None
+            old_commit = parts[4] if len(parts) > 4 and parts[4] != "-" else None
+
+            event_type = None
+            for verb, enum_val in change_map.items():
+                if change_str.lower().find(verb) != -1:
+                    event_type = enum_val
+                    break
+
+            if not event_type:
+                continue
+
+            records.append(
+                HistoryRecords(
+                    timestamp=datetime.strptime(f"2026 {time_str}", "%Y %b\u2007%d %H:%M:%S"),
+                    format=AppFormat.FLATPAK,
+                    lifecycle_event=event_type,
+                    app_name=app_name,
+                    version_id=commit,
+                    old_version_id=old_commit,
+                )
+            )
+
+        return sorted(records, key=lambda x: x.timestamp)

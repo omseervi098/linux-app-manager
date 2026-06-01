@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-from apphub.core.models import AppFormat, AppManifest, AppRuntime
+from apphub.core.models import AppFormat, AppManifest, AppRuntime, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -352,3 +352,6 @@ class AppImagePlugin(PluginBase):
                 self.logger.warning(f"Failed to remove icons: {e}")
 
         return True
+
+    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+        pass
