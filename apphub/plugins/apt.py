@@ -2,7 +2,7 @@ import shutil
 import tempfile
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apphub.core.models import AppCategory, AppFormat, AppManifest, AppRuntime, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import run_cmd
@@ -315,7 +315,7 @@ class AptPlugin(PluginBase):
 
     @staticmethod
     def __parse_timestamp(start_date: str) -> datetime:
-        return datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
+        return datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
 
     async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
         path = Path(self.LOG_FILE_PATH)

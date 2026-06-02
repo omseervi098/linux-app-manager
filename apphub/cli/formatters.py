@@ -1,10 +1,3 @@
-"""
-formatters.py — Rich styling helpers for CLI output.
-
-All table, panel, and styled output construction lives here so that
-commands.py stays focused on business logic.
-"""
-
 from rich import box
 from rich.console import Console
 from rich.panel import Panel

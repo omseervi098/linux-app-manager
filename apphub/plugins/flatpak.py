@@ -1,8 +1,7 @@
 import re
 import os
-import asyncio
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apphub.core.models import AppCategory, AppFormat, AppManifest, LifeCycleEvent, HistoryRecords
 from apphub.core.utils import run_cmd
@@ -267,7 +266,7 @@ class FlatpakPlugin(PluginBase):
 
             records.append(
                 HistoryRecords(
-                    timestamp=datetime.strptime(f"2026 {time_str}", "%Y %b\u2007%d %H:%M:%S"),
+                    timestamp=datetime.strptime(f"2026 {time_str}", "%Y %b\u2007%d %H:%M:%S").replace(tzinfo=timezone.utc),
                     format=AppFormat.FLATPAK,
                     lifecycle_event=event_type,
                     app_name=app_name,

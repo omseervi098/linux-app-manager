@@ -2,7 +2,7 @@ import yaml
 import re
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apphub.core.models import AppCategory, AppFormat, AppManifest, HistoryRecords, LifeCycleEvent
 from apphub.core.utils import is_cmd_available, run_cmd
@@ -271,6 +271,10 @@ class SnapPlugin(PluginBase):
 
             try:
                 timestamp = datetime.fromisoformat(ready_time_str)
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                else:
+                    timestamp = timestamp.astimezone(timezone.utc)
             except ValueError:
                 continue
 
