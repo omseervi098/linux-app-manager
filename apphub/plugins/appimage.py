@@ -1,9 +1,17 @@
 import contextlib
+import json
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
-from apphub.core.models import AppFormat, AppManifest, AppRuntime, LifeCycleEvent, HistoryRecords
+from apphub.core.models import (
+    AppFormat,
+    AppManifest,
+    AppRuntime,
+    HistoryRecords,
+    LifeCycleEvent,
+)
 from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -14,6 +22,8 @@ _SEARCH_DIRS = [
     Path("/opt"),
     Path("/usr/local/bin"),
 ]
+
+_HISTORY_LOGS_DIR = Path.home() / ".apphub" / "logs"
 
 
 class AppImagePlugin(PluginBase):
@@ -84,25 +94,25 @@ class AppImagePlugin(PluginBase):
                     tmp_path = Path(tmp)
 
                     await run_cmd(
-                            "unsquashfs",
-                            "-f",
-                            "-q",
-                            "-o",
-                            str(offset),
-                            "-d",
-                            str(tmp_path),
-                            str(path),
-                            "*.desktop",
-                            ".DirIcon",
-                            "usr/share/icons/*",
-                            "resources/*",
-                            "usr/lib/*",
-                            "usr/lib64/*",
-                            "usr/share/metainfo/*",
-                            "usr/share/appdata/*",
-                            "*.jar",
-                            "*.json",
-                            "*.asar",
+                        "unsquashfs",
+                        "-f",
+                        "-q",
+                        "-o",
+                        str(offset),
+                        "-d",
+                        str(tmp_path),
+                        str(path),
+                        "*.desktop",
+                        ".DirIcon",
+                        "usr/share/icons/*",
+                        "resources/*",
+                        "usr/lib/*",
+                        "usr/lib64/*",
+                        "usr/share/metainfo/*",
+                        "usr/share/appdata/*",
+                        "*.jar",
+                        "*.json",
+                        "*.asar",
                     )
                     files = [f for f in tmp_path.rglob("*") if f.is_file()]
                     names = {f.name for f in files}
@@ -266,6 +276,19 @@ class AppImagePlugin(PluginBase):
 
         await self._create_desktop_entry(dest_path)
 
+        try:
+            manifest = await self.inspect(dest_path)
+            self._record_history(
+                LifeCycleEvent.INSTALLED,
+                app_name=manifest.name,
+                app_id=manifest.id,
+                version_id=manifest.version,
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to record install history for {dest_path.name}: {e}"
+            )
+
         if launch:
             try:
                 # Use gtk-launch to ensure it uses the desktop entry logic
@@ -316,42 +339,106 @@ class AppImagePlugin(PluginBase):
             self.logger.error(f"Failed to create desktop entry: {e}")
             raise
 
+    def _record_history(
+        self,
+        event: LifeCycleEvent,
+        app_name: str,
+        app_id: str,
+        version_id: str | None = None,
+    ):
+        history_file = _HISTORY_LOGS_DIR / "appimage_history.jsonl"
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "format": AppFormat.APPIMAGE.value,
+            "lifecycle_event": event.value,
+            "app_name": app_name,
+            "app_id": app_id,
+            "version_id": version_id,
+        }
+        with open(history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         apps_dir = Path.home() / "Applications"
-        app_filename = app_info.id.split(":", 1)[1] if ":" in app_info.id else app_info.name
+        app_filename = (
+            app_info.id.split(":", 1)[1] if ":" in app_info.id else app_info.name
+        )
         app_path = apps_dir / app_filename
 
+        removed = False
         if app_path.exists():
             try:
                 app_path.unlink()
                 self.logger.info(f"Removed AppImage: {app_path}")
+                removed = True
             except Exception as e:
                 self.logger.error(f"Failed to remove AppImage: {e}")
                 return False
+        else:
+            removed = True
 
-        if not clean_uninstall:
-            return True
+        if clean_uninstall:
+            desktop_dir = Path.home() / ".local/share/applications"
+            desktop_file = desktop_dir / f"apphub-{app_path.stem}.desktop"
 
-        desktop_dir = Path.home() / ".local/share/applications"
-        desktop_file = desktop_dir / f"apphub-{app_path.stem}.desktop"
+            if desktop_file.exists():
+                try:
+                    desktop_file.unlink()
+                    self.logger.info(f"Removed desktop entry: {desktop_file}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to remove desktop entry: {e}")
 
-        if desktop_file.exists():
+            icon_dir = Path.home() / ".local/share/apphub/icons"
+            if icon_dir.exists():
+                try:
+                    for icon in icon_dir.glob(f"appimage_{app_path.stem}*"):
+                        icon.unlink()
+                        self.logger.info(f"Removed icon: {icon}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to remove icons: {e}")
+
+        if removed:
             try:
-                desktop_file.unlink()
-                self.logger.info(f"Removed desktop entry: {desktop_file}")
+                self._record_history(
+                    LifeCycleEvent.UNINSTALLED,
+                    app_name=app_info.name,
+                    app_id=app_info.id,
+                    version_id=app_info.version,
+                )
             except Exception as e:
-                self.logger.warning(f"Failed to remove desktop entry: {e}")
-
-        icon_dir = Path.home() / ".local/share/apphub/icons"
-        if icon_dir.exists():
-            try:
-                for icon in icon_dir.glob(f"appimage_{app_path.stem}*"):
-                    icon.unlink()
-                    self.logger.info(f"Removed icon: {icon}")
-            except Exception as e:
-                self.logger.warning(f"Failed to remove icons: {e}")
+                self.logger.warning(f"Failed to record uninstall history: {e}")
 
         return True
 
-    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
-        pass
+    async def history(
+        self, action_categories: list[LifeCycleEvent] | None = None
+    ) -> list[HistoryRecords]:
+        history_file = _HISTORY_LOGS_DIR / "appimage_history.jsonl"
+        if not history_file.exists():
+            return []
+
+        records = []
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        records.append(
+                            HistoryRecords(
+                                timestamp=datetime.fromisoformat(data["timestamp"]),
+                                format=AppFormat.APPIMAGE,
+                                lifecycle_event=LifeCycleEvent(data["lifecycle_event"]),
+                                app_name=data.get("app_name"),
+                                app_id=data.get("app_id"),
+                                version_id=data.get("version_id"),
+                            )
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Error parsing history line: {e}")
+        except Exception as e:
+            self.logger.error(f"Failed to read AppImage history: {e}")
+        return records
