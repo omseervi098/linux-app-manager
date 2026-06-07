@@ -59,8 +59,8 @@ These flags can be used across multiple commands:
 |------|-------|--------------------------------------------------------------------------------|--------------------|
 | `--json` | | Output results in JSON format                                                  | `list`, `info`, `storage`, `history` |
 | `--format` | `-f` | Filter by package format (`snap`, `apt`, `flatpak`, `appimage`)                | `list`, `storage`, `history` |
-| `--sort` | `-s` | Sort results by field (name, size, version)                                    | `list`, `storage` |
-| `--count` | `-n` | Return only the number of results                                              | `list`, `history` |
+| `--sort` | `-s` | Sort results by field (name, version, format, timestamp)                      | `list`, `history` |
+| `--count` | `-n` | Return only the number of results                                              | `list` |
 
 ---
 
@@ -120,6 +120,9 @@ View installation and uninstallation history.
 ```bash
 apphub history                    # Show full history
 apphub history -f flatpak         # Filter by format
+apphub history -a installed       # Filter by action category (installed|upgraded|uninstalled)
+apphub history -s timestamp       # Sort by field (name|version|timestamp)
+apphub history -t 10              # Show top N records
 ```
 
 ## Contributing
