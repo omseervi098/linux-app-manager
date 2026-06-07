@@ -1,12 +1,14 @@
-import typer
 import asyncio
 from pathlib import Path
+
+import typer
 from rich.console import Console
 
 from apphub.cli.formatters import (
     format_app_panel,
     format_app_table,
-    format_storage_table, format_history_table,
+    format_history_table,
+    format_storage_table,
 )
 from apphub.cli.serializers import to_json, to_json_single
 from apphub.core.hub import AppHubCore
@@ -35,7 +37,9 @@ def list_apps(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List installed applications across all package managers."""
-    apps = asyncio.run(hub.list_apps(query=query, formats=formats, exclude_defaults=exclude_defaults))
+    apps = asyncio.run(
+        hub.list_apps(query=query, formats=formats, exclude_defaults=exclude_defaults)
+    )
 
     if sort_by:
         apps = sorted(apps, key=lambda a: getattr(a, sort_by, "") or "")
@@ -153,9 +157,11 @@ def install(
             print("Installation cancelled.")
             raise typer.Exit()
 
-    result = asyncio.run(hub.install(
-        query_or_path=install_target, install_format=install_format, launch=launch
-    ))
+    result = asyncio.run(
+        hub.install(
+            query_or_path=install_target, install_format=install_format, launch=launch
+        )
+    )
 
     if result:
         console.print("[green]Installation successful[/green]")
@@ -264,15 +270,13 @@ def history(
     order_by: str = typer.Option(
         None, "--sort", "-s", help="Sort by field: name, version, timestamp"
     ),
-    descending: bool = typer.Option(
-        False, "--desc", "-d", help="Sort Descending"
-    ),
-    top: int = typer.Option(
-        None, "--top", "-t", help="Show top N records"
-    )
+    descending: bool = typer.Option(False, "--desc", "-d", help="Sort Descending"),
+    top: int = typer.Option(None, "--top", "-t", help="Show top N records"),
 ):
     """Show installation/uninstallation history."""
-    history_result = asyncio.run(hub.history(formats=formats, action_categories=action_categories))
+    history_result = asyncio.run(
+        hub.history(formats=formats, action_categories=action_categories)
+    )
 
     if order_by:
         history_result.sort(key=lambda x: getattr(x, order_by, "") or "")
