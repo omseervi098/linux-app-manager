@@ -75,7 +75,9 @@ class AppHubCore:
 
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         try:
-            result = await self.plugins[app_info.format].uninstall(app_info, clean_uninstall)
+            result = await self.plugins[app_info.format].uninstall(
+                app_info, clean_uninstall
+            )
         except NotImplementedError:
             raise
         except Exception as e:
@@ -126,8 +128,9 @@ class AppHubCore:
         return apps
 
     async def history(
-            self, formats: list[AppFormat] | None = None,
-            action_categories: list[LifeCycleEvent] | None = None,
+        self,
+        formats: list[AppFormat] | None = None,
+        action_categories: list[LifeCycleEvent] | None = None,
     ) -> list[HistoryRecords]:
         history_records, tasks = [], []
         for plugin_format, plugin in self.plugins.items():

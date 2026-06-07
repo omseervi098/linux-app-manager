@@ -4,7 +4,14 @@ import re
 from pathlib import Path
 from datetime import datetime, timezone
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest, AppRuntime, LifeCycleEvent, HistoryRecords
+from apphub.core.models import (
+    AppCategory,
+    AppFormat,
+    AppManifest,
+    AppRuntime,
+    LifeCycleEvent,
+    HistoryRecords,
+)
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -56,6 +63,7 @@ class AptPlugin(PluginBase):
         "remove",
         "purge",
     }
+
     @classmethod
     def _detect_category(cls, priority: str, section: str, name: str) -> AppCategory:
         if priority in ("required", "important", "essential"):
@@ -75,7 +83,7 @@ class AptPlugin(PluginBase):
                 "dpkg-query",
                 "-W",
                 "-f=${Version}|${Maintainer}|${Installed-Size}|${binary:Summary}",
-                name
+                name,
             )
 
             if code != 0:
@@ -212,7 +220,9 @@ class AptPlugin(PluginBase):
             self.logger.error(f"APT install failed: {stderr}")
             return False
         if launch:
-            code_launch, stdout, stderr_launch = await run_cmd("dpkg", "-L", app_detail.name)
+            code_launch, stdout, stderr_launch = await run_cmd(
+                "dpkg", "-L", app_detail.name
+            )
             if code_launch != 0:
                 self.logger.error(f"Launch failed: {stderr}")
                 return False
@@ -238,7 +248,12 @@ class AptPlugin(PluginBase):
                 ) or name.endswith(("-dbgsym", "-dbg", "-dev", "-doc")):
                     continue
 
-                version, publisher, size_bytes, description = await self._get_package_metadata(name)
+                (
+                    version,
+                    publisher,
+                    size_bytes,
+                    description,
+                ) = await self._get_package_metadata(name)
 
                 apps.append(
                     AppManifest(
@@ -297,11 +312,13 @@ class AptPlugin(PluginBase):
         for m in self.INSTALL_OR_REMOVE_RE.finditer(entry):
             name = m.group("name").strip()
             version = m.group("version").split(",")[0].strip()
-            results.append({
-                "app_name": name,
-                "app_id": name,
-                "version_id": version,
-            })
+            results.append(
+                {
+                    "app_name": name,
+                    "app_id": name,
+                    "version_id": version,
+                }
+            )
         return results
 
     def __parse_upgraded(self, entry: str):
@@ -310,20 +327,26 @@ class AptPlugin(PluginBase):
             name = m.group("name").strip()
             old_version = m.group("old_version").split(",")[0].strip()
             new_version = m.group("new_version").split(",")[0].strip()
-            results.append({
-                "app_name": name,
-                "app_id": name,
-                "version_id": new_version,
-                "old_version_id": old_version,
-            })
+            results.append(
+                {
+                    "app_name": name,
+                    "app_id": name,
+                    "version_id": new_version,
+                    "old_version_id": old_version,
+                }
+            )
         return results
 
     @staticmethod
     def __parse_timestamp(start_date: str) -> datetime:
         normalized = " ".join(start_date.split())
-        return datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone.utc
+        )
 
-    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+    async def history(
+        self, action_categories: list[LifeCycleEvent] | None = None
+    ) -> list[HistoryRecords]:
         path = Path(self.LOG_FILE_PATH)
         history_records = []
         if path.exists():
@@ -351,11 +374,18 @@ class AptPlugin(PluginBase):
                     try:
                         timestamp = self.__parse_timestamp(data["start-date"])
                     except Exception as e:
-                        self.logger.warning(f"Failed to parse timestamp {data.get('start-date')}: {e}")
+                        self.logger.warning(
+                            f"Failed to parse timestamp {data.get('start-date')}: {e}"
+                        )
                         continue
 
-                    if action_categories is None or LifeCycleEvent.INSTALLED in action_categories:
-                        for package in self.__parse_installed_or_uninstalled(data.get("install", "")):
+                    if (
+                        action_categories is None
+                        or LifeCycleEvent.INSTALLED in action_categories
+                    ):
+                        for package in self.__parse_installed_or_uninstalled(
+                            data.get("install", "")
+                        ):
                             history_records.append(
                                 HistoryRecords(
                                     timestamp=timestamp,
@@ -366,8 +396,13 @@ class AptPlugin(PluginBase):
                                     version_id=package["version_id"],
                                 )
                             )
-                    if action_categories is None or LifeCycleEvent.UNINSTALLED in action_categories:
-                        for package in self.__parse_installed_or_uninstalled(data.get("remove", "")):
+                    if (
+                        action_categories is None
+                        or LifeCycleEvent.UNINSTALLED in action_categories
+                    ):
+                        for package in self.__parse_installed_or_uninstalled(
+                            data.get("remove", "")
+                        ):
                             history_records.append(
                                 HistoryRecords(
                                     timestamp=timestamp,
@@ -378,7 +413,9 @@ class AptPlugin(PluginBase):
                                     version_id=package["version_id"],
                                 )
                             )
-                        for package in self.__parse_installed_or_uninstalled(data.get("purge", "")):
+                        for package in self.__parse_installed_or_uninstalled(
+                            data.get("purge", "")
+                        ):
                             history_records.append(
                                 HistoryRecords(
                                     timestamp=timestamp,
@@ -389,7 +426,10 @@ class AptPlugin(PluginBase):
                                     version_id=package["version_id"],
                                 )
                             )
-                    if action_categories is None or LifeCycleEvent.UPGRADED in action_categories:
+                    if (
+                        action_categories is None
+                        or LifeCycleEvent.UPGRADED in action_categories
+                    ):
                         for package in self.__parse_upgraded(data.get("upgrade", "")):
                             history_records.append(
                                 HistoryRecords(
@@ -405,6 +445,3 @@ class AptPlugin(PluginBase):
             except Exception as e:
                 self.logger.error(f"Failed to read or parse APT history log: {e}")
         return history_records
-
-
-

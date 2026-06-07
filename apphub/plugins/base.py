@@ -43,7 +43,9 @@ class PluginBase(ABC):
             f"{self.__class__.__name__} does not support uninstall()"
         )
 
-    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+    async def history(
+        self, action_categories: list[LifeCycleEvent] | None = None
+    ) -> list[HistoryRecords]:
         """Implement this to list app history"""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support history()"

@@ -4,7 +4,13 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest, HistoryRecords, LifeCycleEvent
+from apphub.core.models import (
+    AppCategory,
+    AppFormat,
+    AppManifest,
+    HistoryRecords,
+    LifeCycleEvent,
+)
 from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -165,7 +171,9 @@ class SnapPlugin(PluginBase):
         try:
             if not is_cmd_available("unsquashfs"):
                 return None
-            code, stdout, _ = await run_cmd("unsquashfs", "-n", "-cat", path, "meta/snap.yaml")
+            code, stdout, _ = await run_cmd(
+                "unsquashfs", "-n", "-cat", path, "meta/snap.yaml"
+            )
 
             if code != 0 or not stdout:
                 return None
@@ -220,13 +228,15 @@ class SnapPlugin(PluginBase):
             cmd = ["sudo", "snap", "remove", app_info.name]
 
         code, _, stderr = await run_cmd(*cmd)
-        if code != 0 :
+        if code != 0:
             self.logger.error(f"Snap uninstall failed : {stderr}")
             return False
 
         return True
 
-    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
+    async def history(
+        self, action_categories: list[LifeCycleEvent] | None = None
+    ) -> list[HistoryRecords]:
         code, stdout, stderr = await run_cmd(*["snap", "changes", "--abs-time"])
         if code != 0:
             self.logger.error(f"Snap History Failed : {stderr}")

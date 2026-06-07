@@ -103,7 +103,10 @@ def format_storage_table(apps: list[AppManifest], top: int | None = None) -> Tab
 
     return table
 
-def format_history_table(history_records: list[HistoryRecords], title: str = "HistoryRecords") -> Table:
+
+def format_history_table(
+    history_records: list[HistoryRecords], title: str = "HistoryRecords"
+) -> Table:
     """Styled Rich table for a list of HistoryRecords objects."""
 
     table = Table(
@@ -125,6 +128,8 @@ def format_history_table(history_records: list[HistoryRecords], title: str = "Hi
             record.format.value,
             record.timestamp.strftime("%B %d, %Y, %I:%M %p"),
             record.lifecycle_event,
-            f"{record.old_version_id} -> {record.version_id}" if record.lifecycle_event == LifeCycleEvent.UPGRADED else record.version_id,
+            f"{record.old_version_id} -> {record.version_id}"
+            if record.lifecycle_event == LifeCycleEvent.UPGRADED
+            else record.version_id,
         )
     return table

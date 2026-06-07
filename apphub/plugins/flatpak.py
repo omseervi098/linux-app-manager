@@ -3,7 +3,13 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone
 
-from apphub.core.models import AppCategory, AppFormat, AppManifest, LifeCycleEvent, HistoryRecords
+from apphub.core.models import (
+    AppCategory,
+    AppFormat,
+    AppManifest,
+    LifeCycleEvent,
+    HistoryRecords,
+)
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -48,7 +54,9 @@ def _categorize_flatpak(ref: str, app_id: str) -> AppCategory:
 class FlatpakPlugin(PluginBase):
     async def _get_exact_size(self, app_id: str) -> int | None:
         try:
-            code, stdout, stderr = await run_cmd("flatpak", "info", "--show-size", app_id)
+            code, stdout, stderr = await run_cmd(
+                "flatpak", "info", "--show-size", app_id
+            )
             output = stdout.strip()
 
             if output.isdigit():
@@ -83,7 +91,9 @@ class FlatpakPlugin(PluginBase):
                 ref = parts[6].strip() if len(parts) > 6 else ""
 
                 # Prefer exact size
-                size_bytes = await self._get_exact_size(app_id) or _parse_flatpak_size(size_str)
+                size_bytes = await self._get_exact_size(app_id) or _parse_flatpak_size(
+                    size_str
+                )
 
                 apps.append(
                     AppManifest(
@@ -189,7 +199,13 @@ class FlatpakPlugin(PluginBase):
     async def install(self, query_or_path: str, launch: bool) -> bool:
         path = Path(query_or_path)
 
-        await run_cmd("flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo")
+        await run_cmd(
+            "flatpak",
+            "remote-add",
+            "--if-not-exists",
+            "flathub",
+            "https://dl.flathub.org/repo/flathub.flatpakrepo",
+        )
 
         if path.is_file() and path.exists():
             cmd = ["flatpak", "install", "-y", str(path.resolve())]
@@ -203,7 +219,9 @@ class FlatpakPlugin(PluginBase):
             return False
 
         if launch and query_or_path:
-            code_launch, _, stderr_launch = await run_cmd("flatpak", "run", query_or_path)
+            code_launch, _, stderr_launch = await run_cmd(
+                "flatpak", "run", query_or_path
+            )
             if code_launch != 0:
                 self.logger.error(f"Flatpak launch failed: {stderr_launch}")
                 return False
@@ -230,8 +248,16 @@ class FlatpakPlugin(PluginBase):
             return False
         return True
 
-    async def history(self, action_categories: list[LifeCycleEvent] | None = None) -> list[HistoryRecords]:
-        code, stdout, stderr = await run_cmd(*["flatpak", "history", "--columns=time,change,application,commit,old-commit"])
+    async def history(
+        self, action_categories: list[LifeCycleEvent] | None = None
+    ) -> list[HistoryRecords]:
+        code, stdout, stderr = await run_cmd(
+            *[
+                "flatpak",
+                "history",
+                "--columns=time,change,application,commit,old-commit",
+            ]
+        )
         if code != 0:
             self.logger.error(f"Flatpak History Failed : {stderr}")
             return []
@@ -266,7 +292,9 @@ class FlatpakPlugin(PluginBase):
 
             records.append(
                 HistoryRecords(
-                    timestamp=datetime.strptime(f"2026 {time_str}", "%Y %b\u2007%d %H:%M:%S").replace(tzinfo=timezone.utc),
+                    timestamp=datetime.strptime(
+                        f"2026 {time_str}", "%Y %b\u2007%d %H:%M:%S"
+                    ).replace(tzinfo=timezone.utc),
                     format=AppFormat.FLATPAK,
                     lifecycle_event=event_type,
                     app_name=app_name,

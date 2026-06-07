@@ -40,7 +40,7 @@ def is_cmd_available(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-async def run_cmd(*cmd: str) -> tuple[int|None, str, str]:
+async def run_cmd(*cmd: str) -> tuple[int | None, str, str]:
     cmd_list = list(cmd)
     if cmd_list and cmd_list[0] == "sudo" and "-n" not in cmd_list:
         cmd_list.insert(1, "-n")
