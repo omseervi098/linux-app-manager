@@ -10,6 +10,7 @@ dependencies = [
     "textual>=8.0.0",
     "typer>=0.24.0",
     "rich>=13.0.0",
+    "black>=26.5.1",
 ]
 
 [project.scripts]

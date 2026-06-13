@@ -1,16 +1,16 @@
+import re
 import shutil
 import tempfile
-import re
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 from apphub.core.models import (
     AppCategory,
     AppFormat,
     AppManifest,
     AppRuntime,
-    LifeCycleEvent,
     HistoryRecords,
+    LifeCycleEvent,
 )
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
@@ -75,34 +75,64 @@ class AptPlugin(PluginBase):
         section_key = section.rsplit("/", 1)[-1] if "/" in section else section
         return cls._SECTION_MAP.get(section_key, AppCategory.CLI)
 
-    async def _get_package_metadata(
-        self, name: str
-    ) -> tuple[str | None, str | None, int | None, str | None]:
+    async def _get_app_manifest_in_bulk(
+        self, app_names: list[str]
+    ) -> list[AppManifest]:
         try:
-            code, stdout, _ = await run_cmd(
+            cmd = [
                 "dpkg-query",
                 "-W",
-                "-f=${Version}|${Maintainer}|${Installed-Size}|${binary:Summary}",
-                name,
-            )
+                "-f=${Package}|${Version}|${Maintainer}|${Installed-Size}|${binary:Summary}\n",
+            ] + app_names
+            code, stdout, _ = await run_cmd(*cmd)
 
             if code != 0:
-                return None, None, None, None
+                return [
+                    AppManifest(
+                        name=name,
+                        id=f"apt:{name}",
+                        format=AppFormat.DEBIAN,
+                        installed=True,
+                        category=AppCategory.CLI,
+                        version="-",
+                    )
+                    for name in app_names
+                ]
 
-            parts = stdout.strip().split("|", maxsplit=3)
+            apps = []
+            for line in stdout.strip().split("\n"):
+                if not line:
+                    continue
 
-            version = parts[0] if len(parts) > 0 else None
-            publisher = parts[1] if len(parts) > 1 else None
-            size = (
-                int(parts[2]) * 1024 if len(parts) > 2 and parts[2].isdigit() else None
-            )
-            description = parts[3] if len(parts) > 3 else None
+                parts = line.split("|", maxsplit=4)
+                name = parts[0]
+                version = parts[1] if len(parts) > 1 else "-"
+                publisher = parts[2] if len(parts) > 2 else None
+                size = (
+                    int(parts[3]) * 1024
+                    if len(parts) > 3 and parts[3].isdigit()
+                    else None
+                )
+                description = parts[4] if len(parts) > 4 else None
+                apps.append(
+                    AppManifest(
+                        name=name,
+                        id=f"apt:{name}",
+                        format=AppFormat.DEBIAN,
+                        version=version,
+                        installed=True,
+                        publisher=publisher,
+                        description=description,
+                        category=AppCategory.CLI,
+                        size_bytes=size,
+                    )
+                )
 
-            return version, publisher, size, description
+            return apps
 
         except Exception as e:
             self.logger.warning(f"Apt Failed to get package metadata: {e}")
-            return None, None, None, None
+            return []
 
     async def inspect(self, path: Path) -> AppManifest:
         if not path.exists():
@@ -239,6 +269,7 @@ class AptPlugin(PluginBase):
         try:
             _, stdout, _ = await run_cmd("apt-mark", "showmanual")
 
+            potential_apps = []
             for name in stdout.strip().split("\n"):
                 if not name:
                     continue
@@ -248,26 +279,12 @@ class AptPlugin(PluginBase):
                 ) or name.endswith(("-dbgsym", "-dbg", "-dev", "-doc")):
                     continue
 
-                (
-                    version,
-                    publisher,
-                    size_bytes,
-                    description,
-                ) = await self._get_package_metadata(name)
+                potential_apps.append(name)
+            if not potential_apps:
+                return apps
 
-                apps.append(
-                    AppManifest(
-                        name=name,
-                        id=f"apt:{name}",
-                        format=AppFormat.DEBIAN,
-                        version=version or "-",
-                        installed=True,
-                        publisher=publisher,
-                        description=description,
-                        category=AppCategory.CLI,
-                        size_bytes=size_bytes,
-                    )
-                )
+            response = await self._get_app_manifest_in_bulk(app_names=potential_apps)
+            apps.extend(response)
 
         except Exception as e:
             self.logger.warning(f"APT list_apps failed : {e}")

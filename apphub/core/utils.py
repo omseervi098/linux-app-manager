@@ -1,10 +1,10 @@
+import asyncio
+import shutil
 from functools import lru_cache
 from pathlib import Path
-import shutil
-import asyncio
 
 from apphub.core.exceptions import AppHubError, PluginNotAvailableError
-from apphub.core.models import DistroInfo, AppFormat
+from apphub.core.models import AppFormat, DistroInfo
 
 
 @lru_cache(maxsize=1)
@@ -42,8 +42,6 @@ def is_cmd_available(cmd: str) -> bool:
 
 async def run_cmd(*cmd: str) -> tuple[int | None, str, str]:
     cmd_list = list(cmd)
-    if cmd_list and cmd_list[0] == "sudo" and "-n" not in cmd_list:
-        cmd_list.insert(1, "-n")
 
     proc = await asyncio.create_subprocess_exec(
         *cmd_list,
