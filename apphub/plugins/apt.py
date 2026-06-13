@@ -292,27 +292,17 @@ class AptPlugin(PluginBase):
         return apps
 
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
-        if clean_uninstall:
-            cmd = [
-                "sudo",
-                "apt",
-                "purge",
-                app_info.name,
-                "-y",
-                "&&",
-                "sudo",
-                "apt",
-                "autoremove",
-                "-y",
-            ]
-        else:
-            cmd = ["sudo", "apt", "purge", app_info.name, "-y"]
-
+        cmd = ["sudo", "apt", "purge", app_info.name, "-y"]
         code, _, stderr = await run_cmd(*cmd)
         if code != 0:
             self.logger.error(f"APT uninstall failed : {stderr}")
             return False
-
+        if not clean_uninstall:
+            return True
+        code, _, stderr = await run_cmd("sudo", "apt", "autoremove")
+        if code != 0:
+            self.logger.error(f"APT uninstall failed : {stderr}")
+            return False
         return True
 
     @staticmethod
