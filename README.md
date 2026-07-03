@@ -1,24 +1,24 @@
-# AppHub CLI
+# Linux App Manager
 
-AppHub CLI is a terminal-based application management tool for Linux.
+`linman` is a terminal-based application management tool for Linux.
 It provides a unified interface to interact with various package
 managers and applications.
-
 
 ⚠️  **Work in Progress**  
 This project is under development. Expect bugs, breaking changes, and incomplete features.
 
 ## Features
 
-- **Multi-backend Support**: Manage applications from different sources. Currently it supports follwing formats.
+- **Multi-backend Support**: Manage applications from different sources. Currently it supports the following formats:
     - `apt` Debian Package Manager
     - `snap` Snap Package Manager
-    - `flatpak` Flathub 
+    - `flatpak` Flathub
     - `appimage` AppImage Format
 
 - **System App Detection**: Automatically identify and categorize installed system utilities and libraries.
-- **Application Manifests**: Standardized view of application metadata including versions, publishers, dependencies and categories.
-- **Categorization**: Intelligent grouping of software into categories like `system`, `cli`, `dev`, and `other`.
+- **Application Manifests**: Standardized view of application metadata including versions, publishers, dependencies, and
+  categories.
+- **Categorization**: Intelligent grouping of software into categories like `system`, `cli`, and `desktop`.
 
 ## Project Structure
 
@@ -28,107 +28,138 @@ apphub/
 ├── core/
 │   ├── hub.py                # AppHubCore — orchestrates plugins & filters
 │   ├── models.py             # Pydantic models: AppManifest, AppFormat
-│   └── exceptions.py         # Standardized error types
+│   ├── exceptions.py         # Standardized error types
+│   ├── logger.py             # Logger configuration
+│   └── utils.py              # Common utility functions
 ├── plugins/
 │   ├── base.py               # PluginBase ABC
 │   ├── apt.py                # APT plugin
-│   ├── snap.py
-│   ├── flatpak.py
+│   ├── snap.py               # Snap plugin
+│   ├── flatpak.py            # Flatpak plugin
 │   └── appimage.py           # Scans ~/Applications for .AppImage files
 └── cli/
     ├── commands.py           # Typer subcommands
     ├── formatters.py         # Rich tables, panels, progress bars
-    └── serializers.py        # --json output via Pydantic model_dump()
+    └── serializers.py        # JSON serialization via Pydantic models
 ```
 
 ## Installation
 
-- Install from source:
+- Install from source globally using pipx:
+
 ```bash
 git clone https://github.com/omseervi098/linux-app-hub.git
 cd linux-app-hub
-pip install -e .
+pipx install -e .
 ```
+
+After installation, the CLI tool is available via the command `linman`.
+
 ## Usage
 
-### Global Options
+### Common Options
 
-These flags can be used across multiple commands:
+These flags are shared across multiple subcommands:
 
-| Flag | Short | Description                                                                    | Supported Commands |
-|------|-------|--------------------------------------------------------------------------------|--------------------|
-| `--json` | | Output results in JSON format                                                  | `list`, `info`, `storage`, `history` |
-| `--format` | `-f` | Filter by package format (`snap`, `apt`, `flatpak`, `appimage`)                | `list`, `storage`, `history` |
-| `--sort` | `-s` | Sort results by field (name, version, format, timestamp)                      | `list`, `history` |
-| `--count` | `-n` | Return only the number of results                                              | `list` |
+| Flag       | Short | Description                                                     | Supported Commands                                        |
+|------------|-------|-----------------------------------------------------------------|-----------------------------------------------------------|
+| `--json`   |       | Output results in JSON format                                   | `list`, `search`, `inspect`, `info`, `storage`, `history` |
+| `--format` | `-f`  | Filter by package format (`snap`, `apt`, `flatpak`, `appimage`) | `list`, `search`, `install`, `storage`, `history`         |
+| `--sort`   | `-s`  | Sort results by field (e.g., name, version, format, timestamp)  | `list`, `history`                                         |
+| `--count`  | `-n`  | Return only the number of matching items                        | `list`, `search`                                          |
 
 ---
 
 ### Commands
 
-#### `apphub list`
+#### `linman list`
 
 List all installed applications in a table view (name, format, version, publisher).
 
 ```bash
-apphub list                       # List all applications
-apphub list <query>               # Search by name
-apphub list -e                    # Exclude system/default packages
-apphub list -f snap               # Filter by format
-apphub list -c dev                # Filter by category (system|cli|dev|other)
+linman list                       # List all applications
+linman list <query>               # Search installed apps by name
+linman list -e                    # Exclude system/default packages
+linman list -f snap               # Filter by format (can be specified multiple times)
+linman list -s version            # Sort by field (name, version, format)
 ```
 
-#### `apphub install`
+#### `linman search`
 
-Install an application from a local file. The format is auto-detected.
+Search available applications across supported registries.
 
 ```bash
-apphub install <path>             # Install an application
-apphub install <path> -l          # Install and launch immediately
+linman search <query>             # Search registry by name/description
+linman search <query> -f flatpak  # Search within a specific format
+linman search <query> -n          # Print only the number of matching apps
 ```
 
-#### `apphub uninstall`
+#### `linman inspect`
+
+Inspect a local installable package file (e.g., `.AppImage`) and print its manifest details.
+
+```bash
+linman inspect <path_to_file>     # Print detailed metadata
+linman inspect <path_to_file> --json # Print metadata as JSON
+```
+
+#### `linman install`
+
+Install an application from a registry or a local file. The format is auto-detected for local files.
+
+```bash
+linman install <name_or_path>     # Install by name (interactive choice if multiple) or path
+linman install <name_or_path> -y  # Auto-confirm installation
+linman install <name_or_path> -l  # Launch the application immediately after installation
+linman install <name> -f snap     # Restrict search registry to a specific format
+```
+
+#### `linman uninstall`
 
 Remove an installed application.
 
 ```bash
-apphub uninstall <application_name>
+linman uninstall <application_name>
+linman uninstall <application_name> -y # Auto-confirm uninstallation
+linman uninstall <application_name> -c # Clean uninstall (removes associated data)
 ```
 
-#### `apphub info`
+#### `linman info`
 
 Display detailed metadata for a specific application.
 
 ```bash
-apphub info <application_name>    # Show app details
+linman info <application_name>        # Show app details
+linman info <application_name> --json # Show app details in JSON format
 ```
 
-#### `apphub storage`
+#### `linman storage`
 
 Analyze disk space used by installed applications.
 
 ```bash
-apphub storage                    # Show storage for all apps
-apphub storage -f snap            # Filter by format
-apphub storage -t 10              # Show top N apps by size
+linman storage                    # Show storage for all apps
+linman storage -f snap            # Filter by format
+linman storage -t 10              # Show top N apps by size
+linman storage --json             # Output storage analysis as JSON
 ```
 
-#### `apphub history`
+#### `linman history`
 
 View installation and uninstallation history.
 
 ```bash
-apphub history                    # Show full history
-apphub history -f flatpak         # Filter by format
-apphub history -a installed       # Filter by action category (installed|upgraded|uninstalled)
-apphub history -s timestamp       # Sort by field (name|version|timestamp)
-apphub history -t 10              # Show top N records
+linman history                    # Show full history
+linman history -f flatpak         # Filter by format
+linman history -a installed       # Filter by action category (installed|upgraded|uninstalled)
+linman history -s timestamp -d    # Sort by field descending (name|version|timestamp)
+linman history -t 10              # Show top N records
 ```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
-
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to
+discuss what you would like to change.
 
 ## License
 
