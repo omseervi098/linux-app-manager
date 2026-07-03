@@ -1,5 +1,5 @@
 [project]
-name = "apphub-terminal"
+name = "linux-app-manager"
 version = "0.1.0"
 description = "Linux App Hub - Manage your Linux applications across all formats."
 readme = "README.md"
@@ -7,14 +7,13 @@ requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0.3",
-    "textual>=8.0.0",
     "typer>=0.24.0",
     "rich>=13.0.0",
     "black>=26.5.1",
 ]
 
 [project.scripts]
-apphub = "apphub.main:app"
+linman = "apphub.main:app"
 
 [build-system]
 requires = ["hatchling"]
