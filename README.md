@@ -48,7 +48,7 @@ apphub/
 - Install from source globally using pipx:
 
 ```bash
-git clone https://github.com/omseervi098/linux-app-hub.git
+git clone https://github.com/omseervi098/linux-app-manager.git
 cd linux-app-hub
 pipx install -e .
 ```
