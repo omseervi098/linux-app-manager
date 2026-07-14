@@ -15,6 +15,7 @@ wheels/
 uv.lock
 .python-version
 linux_app_hub.py
-.github/*
 apphub.log
 .coverage
+coverage.xml
+htmlcov/
