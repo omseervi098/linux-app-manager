@@ -1,7 +1,7 @@
 [project]
-name = "linux-app-manager"
+name = "linman"
 version = "0.1.0"
-description = "Linux App Hub - Manage your Linux applications across all formats."
+description = "Linman - Manage your Linux applications across all formats."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
