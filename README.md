@@ -1,86 +1,71 @@
-# Linux App Manager
+# linman
 
-`linman` is a terminal-based application management tool for Linux.
-It provides a unified interface to interact with various package
-managers and applications.
-
-⚠️  **Work in Progress**  
-This project is under development. Expect bugs, breaking changes, and incomplete features.
+`linman` is a terminal-based application manager for Linux. It provides a unified CLI to work with multiple package formats from one place.
 
 ## Features
 
-- **Multi-backend Support**: Manage applications from different sources. Currently it supports the following formats:
-    - `apt` Debian Package Manager
-    - `snap` Snap Package Manager
-    - `flatpak` Flathub
-    - `appimage` AppImage Format
-
-- **System App Detection**: Automatically identify and categorize installed system utilities and libraries.
-- **Application Manifests**: Standardized view of application metadata including versions, publishers, dependencies, and
-  categories.
-- **Categorization**: Intelligent grouping of software into categories like `system`, `cli`, and `desktop`.
-
-## Project Structure
-
-```
-apphub/
-├── main.py                   # Entry point — routes Typer CLI or TUI
-├── core/
-│   ├── hub.py                # AppHubCore — orchestrates plugins & filters
-│   ├── models.py             # Pydantic models: AppManifest, AppFormat
-│   ├── exceptions.py         # Standardized error types
-│   ├── logger.py             # Logger configuration
-│   └── utils.py              # Common utility functions
-├── plugins/
-│   ├── base.py               # PluginBase ABC
-│   ├── apt.py                # APT plugin
-│   ├── snap.py               # Snap plugin
-│   ├── flatpak.py            # Flatpak plugin
-│   └── appimage.py           # Scans ~/Applications for .AppImage files
-└── cli/
-    ├── commands.py           # Typer subcommands
-    ├── formatters.py         # Rich tables, panels, progress bars
-    └── serializers.py        # JSON serialization via Pydantic models
-```
+- **Multi-backend support** — manage apps across:
+  - `apt` (Debian packages)
+  - `snap`
+  - `flatpak` (Flathub)
+  - `appimage`
+- **System app detection** — identify and categorize system utilities and libraries
+- **Application manifests** — consistent view of versions, publishers, sizes, and categories
+- **Categorization** — group software into `system`, `cli`, and `desktop`
 
 ## Installation
 
-- Install from source globally using pipx:
+Requires Python **3.11+**.
+
+### pipx (recommended)
 
 ```bash
-git clone https://github.com/omseervi098/linux-app-manager.git
-cd linux-app-manager
-pipx install -e .
+pipx install linman
 ```
 
-After installation, the CLI tool is available via the command `linman`.
+### uv
+
+```bash
+uv tool install linman
+```
+
+After install, the CLI is available as:
+
+```bash
+linman --help
+linman --version
+```
+
+### Upgrade
+
+```bash
+pipx upgrade linman
+# or
+uv tool upgrade linman
+```
 
 ## Usage
 
-### Common Options
+### Common options
 
-These flags are shared across multiple subcommands:
-
-| Flag       | Short | Description                                                     | Supported Commands                                        |
+| Flag       | Short | Description                                                     | Commands                                                  |
 |------------|-------|-----------------------------------------------------------------|-----------------------------------------------------------|
-| `--json`   |       | Output results in JSON format                                   | `list`, `search`, `inspect`, `info`, `storage`, `history` |
+| `--json`   |       | Output results as JSON                                          | `list`, `search`, `inspect`, `info`, `storage`, `history` |
 | `--format` | `-f`  | Filter by package format (`snap`, `apt`, `flatpak`, `appimage`) | `list`, `search`, `install`, `storage`, `history`         |
-| `--sort`   | `-s`  | Sort results by field (e.g., name, version, format, timestamp)  | `list`, `history`                                         |
-| `--count`  | `-n`  | Return only the number of matching items                        | `list`, `search`                                          |
-
----
+| `--sort`   | `-s`  | Sort by field (e.g. name, version, format, timestamp)           | `list`, `history`                                         |
+| `--count`  | `-n`  | Print only the number of matching items                         | `list`, `search`                                          |
 
 ### Commands
 
 #### `linman list`
 
-List all installed applications in a table view (name, format, version, publisher).
+List installed applications (name, format, version, publisher).
 
 ```bash
 linman list                       # List all applications
-linman list <query>               # Search installed apps by name
+linman list <query>               # Filter installed apps by name
 linman list -e                    # Exclude system/default packages
-linman list -f snap               # Filter by format (can be specified multiple times)
+linman list -f snap               # Filter by format (repeatable)
 linman list -s version            # Sort by field (name, version, format)
 ```
 
@@ -89,29 +74,29 @@ linman list -s version            # Sort by field (name, version, format)
 Search available applications across supported registries.
 
 ```bash
-linman search <query>             # Search registry by name/description
-linman search <query> -f flatpak  # Search within a specific format
-linman search <query> -n          # Print only the number of matching apps
+linman search <query>
+linman search <query> -f flatpak
+linman search <query> -n
 ```
 
 #### `linman inspect`
 
-Inspect a local installable package file (e.g., `.AppImage`) and print its manifest details.
+Inspect a local package file (e.g. `.AppImage`, `.deb`) and print its manifest.
 
 ```bash
-linman inspect <path_to_file>     # Print detailed metadata
-linman inspect <path_to_file> --json # Print metadata as JSON
+linman inspect <path_to_file>
+linman inspect <path_to_file> --json
 ```
 
 #### `linman install`
 
-Install an application from a registry or a local file. The format is auto-detected for local files.
+Install from a registry name or a local file. Format is auto-detected for local files.
 
 ```bash
-linman install <name_or_path>     # Install by name (interactive choice if multiple) or path
-linman install <name_or_path> -y  # Auto-confirm installation
-linman install <name_or_path> -l  # Launch the application immediately after installation
-linman install <name> -f snap     # Restrict search registry to a specific format
+linman install <name_or_path>
+linman install <name_or_path> -y   # Auto-confirm
+linman install <name_or_path> -l   # Launch after install
+linman install <name> -f snap      # Restrict search to a format
 ```
 
 #### `linman uninstall`
@@ -120,47 +105,46 @@ Remove an installed application.
 
 ```bash
 linman uninstall <application_name>
-linman uninstall <application_name> -y # Auto-confirm uninstallation
-linman uninstall <application_name> -c # Clean uninstall (removes associated data)
+linman uninstall <application_name> -y   # Auto-confirm
+linman uninstall <application_name> -c   # Clean uninstall (associated data)
 ```
 
 #### `linman info`
 
-Display detailed metadata for a specific application.
+Show detailed metadata for an application.
 
 ```bash
-linman info <application_name>        # Show app details
-linman info <application_name> --json # Show app details in JSON format
+linman info <application_name>
+linman info <application_name> --json
 ```
 
 #### `linman storage`
 
-Analyze disk space used by installed applications.
+Disk usage by installed applications.
 
 ```bash
-linman storage                    # Show storage for all apps
-linman storage -f snap            # Filter by format
-linman storage -t 10              # Show top N apps by size
-linman storage --json             # Output storage analysis as JSON
+linman storage
+linman storage -f snap
+linman storage -t 10
+linman storage --json
 ```
 
 #### `linman history`
 
-View installation and uninstallation history.
+Installation / upgrade / uninstall history.
 
 ```bash
-linman history                    # Show full history
-linman history -f flatpak         # Filter by format
-linman history -a installed       # Filter by action category (installed|upgraded|uninstalled)
-linman history -s timestamp -d    # Sort by field descending (name|version|timestamp)
-linman history -t 10              # Show top N records
+linman history
+linman history -f flatpak
+linman history -a installed       # installed | upgraded | uninstalled
+linman history -s timestamp -d
+linman history -t 10
 ```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to
-discuss what you would like to change.
+Contributions are welcome. Open an issue for larger changes, or submit a pull request.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT
