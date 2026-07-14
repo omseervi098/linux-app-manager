@@ -18,4 +18,3 @@ linux_app_hub.py
 .github/*
 apphub.log
 .coverage
-tests/*
