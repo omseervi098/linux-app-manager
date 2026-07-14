@@ -1,8 +1,9 @@
-import yaml
-import re
 import os
-from pathlib import Path
+import re
 from datetime import datetime, timezone
+from pathlib import Path
+
+import yaml
 
 from apphub.core.models import (
     AppCategory,
@@ -234,70 +235,73 @@ class SnapPlugin(PluginBase):
 
         return True
 
+    _SNAP_ACTION_MAP = {
+        "install": LifeCycleEvent.INSTALLED,
+        "refresh": LifeCycleEvent.UPGRADED,
+        "remove": LifeCycleEvent.UNINSTALLED,
+    }
+    _SNAP_CHANGE_RE = re.compile(r"^(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$")
+
+    def _parse_snap_change_line(
+        self,
+        line: str,
+        action_categories: list[LifeCycleEvent] | None,
+    ) -> list[HistoryRecords]:
+        line = line.strip()
+        if not line or line.startswith("ID ") or "Spawn" in line:
+            return []
+
+        match = self._SNAP_CHANGE_RE.match(line)
+        if not match:
+            return []
+
+        _, status, _, ready_time_str, summary = match.groups()
+        if status != "Done":
+            return []
+
+        summary_lower = summary.lower()
+        event_type = next(
+            (
+                enum_val
+                for verb, enum_val in self._SNAP_ACTION_MAP.items()
+                if summary_lower.startswith(verb)
+            ),
+            None,
+        )
+        if not event_type:
+            return []
+        if action_categories and event_type not in action_categories:
+            return []
+
+        try:
+            timestamp = datetime.fromisoformat(ready_time_str)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                timestamp = timestamp.astimezone(timezone.utc)
+        except ValueError:
+            return []
+
+        return [
+            HistoryRecords(
+                timestamp=timestamp,
+                format=AppFormat.SNAP,
+                lifecycle_event=event_type,
+                app_name=app_name,
+            )
+            for app_name in re.findall(r'"([^"]+)"', summary)
+        ]
+
     async def history(
         self, action_categories: list[LifeCycleEvent] | None = None
     ) -> list[HistoryRecords]:
         code, stdout, stderr = await run_cmd(*["snap", "changes", "--abs-time"])
         if code != 0:
             self.logger.error(f"Snap History Failed : {stderr}")
-        records = []
-
-        action_map = {
-            "install": LifeCycleEvent.INSTALLED,
-            "refresh": LifeCycleEvent.UPGRADED,
-            "remove": LifeCycleEvent.UNINSTALLED,
-        }
-
-        lines = stdout.strip().splitlines()
-        if not lines:
             return []
 
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith("ID ") or "Spawn" in line:
-                continue
-
-            match = re.match(r"^(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$", line)
-            if not match:
-                continue
-
-            _, status, _, ready_time_str, summary = match.groups()
-
-            if status != "Done":
-                continue
-
-            summary_lower = summary.lower()
-            event_type = None
-            for verb, enum_val in action_map.items():
-                if summary_lower.startswith(verb):
-                    event_type = enum_val
-                    break
-
-            if not event_type:
-                continue
-
-            if action_categories and event_type not in action_categories:
-                continue
-
-            try:
-                timestamp = datetime.fromisoformat(ready_time_str)
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
-                else:
-                    timestamp = timestamp.astimezone(timezone.utc)
-            except ValueError:
-                continue
-
-            app_names = re.findall(r'"([^"]+)"', summary)
-
-            for app_name in app_names:
-                records.append(
-                    HistoryRecords(
-                        timestamp=timestamp,
-                        format=AppFormat.SNAP,
-                        lifecycle_event=event_type,
-                        app_name=app_name,
-                    )
-                )
+        records: list[HistoryRecords] = []
+        for line in stdout.strip().splitlines():
+            records.extend(self._parse_snap_change_line(line, action_categories))
 
         return sorted(records, key=lambda x: x.timestamp)

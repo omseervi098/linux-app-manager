@@ -11,12 +11,49 @@ from apphub.cli.formatters import (
     format_storage_table,
 )
 from apphub.cli.serializers import to_json, to_json_single
+from apphub.core.exceptions import AppNotFoundError
 from apphub.core.hub import AppHubCore
-from apphub.core.models import AppFormat, LifeCycleEvent
+from apphub.core.models import AppFormat, AppManifest, LifeCycleEvent
 
 cli_app = typer.Typer(no_args_is_help=True)
 hub = AppHubCore()
 console = Console()
+
+
+def _emit_app_list(
+    apps: list[AppManifest],
+    *,
+    title: str,
+    count: bool,
+    output_json: bool,
+) -> None:
+    if count:
+        console.print(f"[bold cyan]{len(apps)}[/bold cyan] application(s) found.")
+        return
+    if output_json:
+        console.print(to_json(apps))
+        return
+    console.print(format_app_table(apps, title=f"{title} ({len(apps)})"))
+
+
+def _prompt_select_app(
+    results: list[AppManifest], name: str, action: str
+) -> AppManifest:
+    if len(results) == 1:
+        return results[0]
+
+    console.print(f"[yellow]Found multiple applications matching '{name}':[/yellow]")
+    for idx, app in enumerate(results, start=1):
+        desc = app.description or "No description"
+        console.print(
+            f"[cyan][{idx}] | {app.name} ({app.format.value}) | {desc}[/cyan]"
+        )
+
+    choice: int = typer.prompt(f"Select an application to {action} (number)", type=int)
+    if choice < 1 or choice > len(results):
+        console.print("[red]Invalid selection.[/red]")
+        raise typer.Exit(1)
+    return results[choice - 1]
 
 
 @cli_app.command(name="list")
@@ -44,15 +81,7 @@ def list_apps(
     if sort_by:
         apps = sorted(apps, key=lambda a: getattr(a, sort_by, "") or "")
 
-    if count:
-        console.print(f"[bold cyan]{len(apps)}[/bold cyan] application(s) found.")
-        return
-
-    if output_json:
-        console.print(to_json(apps))
-        return
-
-    console.print(format_app_table(apps, title=f"Applications ({len(apps)})"))
+    _emit_app_list(apps, title="Applications", count=count, output_json=output_json)
 
 
 @cli_app.command(name="search")
@@ -68,16 +97,7 @@ def search(
 ):
     """Search available applications across supported registries."""
     apps = asyncio.run(hub.search(query=query, formats=formats))
-
-    if count:
-        console.print(f"[bold cyan]{len(apps)}[/bold cyan] application(s) found.")
-        return
-
-    if output_json:
-        console.print(to_json(apps))
-        return
-
-    console.print(format_app_table(apps, title=f"Search Results ({len(apps)})"))
+    _emit_app_list(apps, title="Search Results", count=count, output_json=output_json)
 
 
 @cli_app.command(name="inspect")
@@ -85,7 +105,7 @@ def inspect(
     file_path: str = typer.Argument(
         ..., help="Path to the application file or Application Name to be searched"
     ),
-    output_json: bool = typer.Option(False, "--json ", help="Output as JSON"),
+    output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Inspect Local Installable File."""
 
@@ -127,29 +147,12 @@ def install(
             console.print(f"[red]No application found matching '{path_or_name}'.[/red]")
             raise typer.Exit(1)
 
+        app_info = _prompt_select_app(results, path_or_name, "install")
         if len(results) == 1:
-            app_info = results[0]
             console.print(f"Found this on {app_info.format.value}")
-            console.print(format_app_panel(app_info))
-            install_target = app_info.name
-            install_format = app_info.format
-        else:
-            console.print(f"Found multiple applications matching '{path_or_name}':")
-            for idx, app in enumerate(results, start=1):
-                desc = app.description or "No description"
-                console.print(f"[{idx}] {app.name} ({app.format.value}) - {desc}")
-
-            choice: int = typer.prompt(
-                "Select an application to install (number)", type=int
-            )
-            if choice < 1 or choice > len(results):
-                console.print("[red]Invalid selection.[/red]")
-                raise typer.Exit(1)
-
-            app_info = results[choice - 1]
-            console.print(format_app_panel(app_info))
-            install_target = app_info.name
-            install_format = app_info.format
+        console.print(format_app_panel(app_info))
+        install_target = app_info.name
+        install_format = app_info.format
 
     if not yes:
         confirm = typer.confirm("Install this application?")
@@ -183,29 +186,11 @@ def uninstall(
     if not results:
         console.print(f"[red]No application found matching '{name}'.[/red]")
         raise typer.Exit(1)
+
     if len(results) == 1:
         console.print(f"[bold yellow]Uninstalling {name}...[/bold yellow]")
-        app_info = results[0]
-        console.print(format_app_panel(app_info))
-    else:
-        console.print(
-            f"[yellow]Found multiple applications matching '{name}':[/yellow]"
-        )
-        for idx, app in enumerate(results, start=1):
-            desc = app.description or "No description"
-            console.print(
-                f"[cyan][{idx}] | {app.name} ({app.format.value}) | {desc}[/cyan]"
-            )
-
-        choice: int = typer.prompt(
-            "Select an application to uninstall (number)", type=int
-        )
-        if choice < 1 or choice > len(results):
-            console.print("[red]Invalid selection.[/red]")
-            raise typer.Exit(1)
-
-        app_info = results[choice - 1]
-        console.print(format_app_panel(app_info))
+    app_info = _prompt_select_app(results, name, "uninstall")
+    console.print(format_app_panel(app_info))
 
     if not yes:
         confirm = typer.confirm("Uninstall this application?")
@@ -228,9 +213,9 @@ def info(
     output_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Show detailed information about an application."""
-    app_info = asyncio.run(hub.info(query=name))
-
-    if app_info is None:
+    try:
+        app_info = asyncio.run(hub.info(query=name))
+    except AppNotFoundError:
         console.print(f"[red]No application found matching '{name}'.[/red]")
         raise typer.Exit(1)
 

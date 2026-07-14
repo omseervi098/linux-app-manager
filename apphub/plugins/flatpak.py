@@ -1,7 +1,7 @@
-import re
 import os
-from pathlib import Path
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from apphub.core.models import (
     AppCategory,
@@ -68,11 +68,35 @@ class FlatpakPlugin(PluginBase):
             self.logger.error(f"Flatpak Error while extracting size: {str(e)}")
             return None
 
+    def _manifest_from_list_line(
+        self, parts: list[str], size_bytes: int | None
+    ) -> AppManifest | None:
+        if len(parts) < 4:
+            return None
+        name, app_id, version, origin = parts[0], parts[1], parts[2], parts[3]
+        description = parts[4].strip() if len(parts) > 4 else None
+        size_str = parts[5].strip() if len(parts) > 5 else "-"
+        ref = parts[6].strip() if len(parts) > 6 else ""
+        resolved_size = (
+            size_bytes if size_bytes is not None else _parse_flatpak_size(size_str)
+        )
+        return AppManifest(
+            name=name,
+            id=f"flatpak:{app_id}",
+            format=AppFormat.FLATPAK,
+            version=version or "unknown",
+            publisher=origin,
+            installed=True,
+            description=description or None,
+            size_bytes=resolved_size,
+            category=_categorize_flatpak(ref, app_id),
+        )
+
     async def list_apps(self) -> list[AppManifest]:
         apps = []
 
         try:
-            _, stdout, stderr = await run_cmd("flatpak", "list")
+            _, stdout, _ = await run_cmd("flatpak", "list")
 
             for line in stdout.strip().split("\n"):
                 if not line:
@@ -82,32 +106,15 @@ class FlatpakPlugin(PluginBase):
                 if len(parts) < 4:
                     continue
 
-                name = parts[0]
                 app_id = parts[1]
-                version = parts[2]
-                origin = parts[3]
-                description = parts[4].strip() if len(parts) > 4 else None
+                size_bytes = await self._get_exact_size(app_id)
                 size_str = parts[5].strip() if len(parts) > 5 else "-"
-                ref = parts[6].strip() if len(parts) > 6 else ""
+                if size_bytes is None:
+                    size_bytes = _parse_flatpak_size(size_str)
 
-                # Prefer exact size
-                size_bytes = await self._get_exact_size(app_id) or _parse_flatpak_size(
-                    size_str
-                )
-
-                apps.append(
-                    AppManifest(
-                        name=name,
-                        id=f"flatpak:{app_id}",
-                        format=AppFormat.FLATPAK,
-                        version=version or "unknown",
-                        publisher=origin,
-                        installed=True,
-                        description=description or None,
-                        size_bytes=size_bytes,
-                        category=_categorize_flatpak(ref, app_id),
-                    )
-                )
+                manifest = self._manifest_from_list_line(parts, size_bytes)
+                if manifest:
+                    apps.append(manifest)
 
         except Exception as e:
             self.logger.warning(f"Flatpak Error while listing apps: {str(e)}")

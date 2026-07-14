@@ -28,12 +28,11 @@ def detect_format(path: str) -> AppFormat:
     if not Path(path).exists():
         raise AppHubError(f"Path Doesn't Exists : {path}.") from None
     suffix = Path(path).suffix[1:].lower()
+    format_key = "apt" if suffix == "deb" else suffix
     try:
-        return AppFormat("apt" if suffix == "deb" else suffix)
+        return AppFormat(format_key)
     except ValueError:
-        raise PluginNotAvailableError(
-            f"Plugin Not Available for this format : {suffix}"
-        ) from None
+        raise PluginNotAvailableError(format_key or "unknown") from None
 
 
 def is_cmd_available(cmd: str) -> bool:

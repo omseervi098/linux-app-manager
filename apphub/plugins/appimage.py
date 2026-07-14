@@ -1,7 +1,10 @@
+import configparser
 import contextlib
 import json
 import os
 import shutil
+import tempfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +15,7 @@ from apphub.core.models import (
     HistoryRecords,
     LifeCycleEvent,
 )
+from apphub.core.runtime import detect_runtime_from_names, parse_appimage_stem
 from apphub.core.utils import is_cmd_available, run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -24,6 +28,7 @@ _SEARCH_DIRS = [
 ]
 
 _HISTORY_LOGS_DIR = Path.home() / ".apphub" / "logs"
+_ICON_CACHE_DIR = Path.home() / ".local/share/apphub/icons"
 
 
 class AppImagePlugin(PluginBase):
@@ -52,189 +57,178 @@ class AppImagePlugin(PluginBase):
 
         return apps
 
+    def _read_desktop_metadata(
+        self, desktop: Path
+    ) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+        config = configparser.ConfigParser(interpolation=None)
+        content = desktop.read_text(errors="ignore")
+        if "[Desktop Entry]" not in content:
+            content = "[Desktop Entry]\n" + content
+        config.read_string(content)
+
+        if not config.has_section("Desktop Entry"):
+            return None, None, None, None, None
+
+        entry = config["Desktop Entry"]
+        publisher = (
+            entry.get("X-AppImage-Publisher")
+            or entry.get("X-AppImage-Author")
+            or entry.get("X-AppImage-Developer")
+        )
+        return (
+            entry.get("Name"),
+            entry.get("Comment"),
+            entry.get("Version"),
+            publisher,
+            entry.get("Icon"),
+        )
+
+    def _read_appstream_metadata(
+        self, root_dir: Path
+    ) -> tuple[str | None, str | None, str | None]:
+        """Return (publisher, description, version) from AppStream metadata if present."""
+        appstream_files = list(root_dir.rglob("*.appdata.xml")) + list(
+            root_dir.rglob("*.metainfo.xml")
+        )
+        if not appstream_files:
+            return None, None, None
+
+        try:
+            root = ET.parse(appstream_files[0]).getroot()
+            publisher = description = version = None
+
+            dev = root.find(".//developer_name")
+            if dev is not None and dev.text:
+                publisher = dev.text.strip()
+
+            summary = root.find(".//summary")
+            if summary is not None and summary.text:
+                description = summary.text.strip()
+
+            release = root.find(".//release")
+            if release is not None:
+                version = release.attrib.get("version")
+
+            return publisher, description, version
+        except Exception as e:
+            self.logger.warning(f"AppImage AppStream parse failed: {e}")
+            return None, None, None
+
+    def _resolve_icon(
+        self, root_dir: Path, icon_name: str | None, stem: str
+    ) -> str | None:
+        """Locate an icon under the extracted tree and cache it; return cache path."""
+        icon_file = root_dir / ".DirIcon"
+        if not icon_file.exists():
+            candidates: list[Path] = []
+            if icon_name:
+                candidates.extend(root_dir.rglob(f"{icon_name}*.png"))
+                candidates.extend(root_dir.rglob(f"{icon_name}*.svg"))
+            if not candidates:
+                candidates = list(root_dir.rglob("*.png")) + list(
+                    root_dir.rglob("*.svg")
+                )
+            if candidates:
+                icon_file = max(
+                    candidates,
+                    key=lambda p: p.stat().st_size if p.exists() else 0,
+                )
+
+        if not icon_file.exists():
+            return None
+
+        _ICON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cached_icon = _ICON_CACHE_DIR / f"appimage_{stem}{icon_file.suffix}"
+        shutil.copy2(icon_file, cached_icon)
+        return str(cached_icon)
+
+    async def _extract_embedded_metadata(
+        self, path: Path
+    ) -> tuple[str, str | None, str, str, str | None, AppRuntime]:
+        """Extract (name, description, version, publisher, icon_path, runtime)."""
+        name, version = parse_appimage_stem(path.stem)
+        description = None
+        publisher = "unknown"
+        runtime = AppRuntime.NATIVE
+        icon_path = None
+
+        if not is_cmd_available("unsquashfs"):
+            return name, description, version, publisher, icon_path, runtime
+
+        try:
+            if not os.access(path, os.X_OK):
+                path.chmod(path.stat().st_mode | 0o111)
+            _, stdout, _ = await run_cmd(str(path), "--appimage-offset")
+            offset = int(stdout.strip())
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                await run_cmd(
+                    "unsquashfs",
+                    "-f",
+                    "-q",
+                    "-o",
+                    str(offset),
+                    "-d",
+                    str(tmp_path),
+                    str(path),
+                    "*.desktop",
+                    ".DirIcon",
+                    "usr/share/icons/*",
+                    "resources/*",
+                    "usr/lib/*",
+                    "usr/lib64/*",
+                    "usr/share/metainfo/*",
+                    "usr/share/appdata/*",
+                    "*.jar",
+                    "*.json",
+                    "*.asar",
+                )
+                files = [f for f in tmp_path.rglob("*") if f.is_file()]
+                names = {f.name for f in files}
+                runtime = detect_runtime_from_names(names)
+
+                desktop = next(tmp_path.rglob("*.desktop"), None)
+                icon_name = None
+                if desktop:
+                    d_name, d_desc, d_ver, d_pub, icon_name = (
+                        self._read_desktop_metadata(desktop)
+                    )
+                    if d_name:
+                        name = d_name
+                    if d_desc:
+                        description = d_desc
+                    if d_ver and version == "unknown":
+                        version = d_ver
+                    if d_pub:
+                        publisher = d_pub
+
+                    a_pub, a_desc, a_ver = self._read_appstream_metadata(tmp_path)
+                    if publisher == "unknown" and a_pub:
+                        publisher = a_pub
+                    if description is None and a_desc:
+                        description = a_desc
+                    if version == "unknown" and a_ver:
+                        version = a_ver
+
+                icon_path = self._resolve_icon(tmp_path, icon_name, path.stem)
+
+        except Exception as e:
+            self.logger.warning(f"AppImage metadata extraction failed: {e}")
+
+        return name, description, version, publisher, icon_path, runtime
+
     async def inspect(self, path: Path) -> AppManifest:
         if not path.exists():
             raise FileNotFoundError(f"AppImage file not found: {path}")
-
-        stem = path.stem
-        parts = stem.split("-")
-
-        name_parts: list[str] = []
-        version = "unknown"
-
-        for part in parts:
-            if part.lower() in {"x86_64", "amd64", "arm64", "aarch64"}:
-                break
-            if part and part[0].isdigit():
-                version = part
-                break
-            name_parts.append(part)
-
-        name = " ".join(name_parts) if name_parts else stem
 
         size_bytes = None
         with contextlib.suppress(OSError):
             size_bytes = path.stat().st_size
 
-        description = None
-        icon_path = None
-        publisher = "unknown"
-        runtime = AppRuntime.NATIVE
-        if is_cmd_available("unsquashfs"):
-            try:
-                if not os.access(path, os.X_OK):
-                    path.chmod(path.stat().st_mode | 0o111)
-                _, stdout, _ = await run_cmd(str(path), "--appimage-offset")
-                offset = int(stdout.strip())
-
-                import configparser
-                import tempfile
-
-                with tempfile.TemporaryDirectory() as tmp:
-                    tmp_path = Path(tmp)
-
-                    await run_cmd(
-                        "unsquashfs",
-                        "-f",
-                        "-q",
-                        "-o",
-                        str(offset),
-                        "-d",
-                        str(tmp_path),
-                        str(path),
-                        "*.desktop",
-                        ".DirIcon",
-                        "usr/share/icons/*",
-                        "resources/*",
-                        "usr/lib/*",
-                        "usr/lib64/*",
-                        "usr/share/metainfo/*",
-                        "usr/share/appdata/*",
-                        "*.jar",
-                        "*.json",
-                        "*.asar",
-                    )
-                    files = [f for f in tmp_path.rglob("*") if f.is_file()]
-                    names = {f.name for f in files}
-
-                    if (
-                        "chrome-sandbox" in names
-                        or "libnode.so" in names
-                        or any(n.endswith(".asar") for n in names)
-                    ):
-                        runtime = AppRuntime.ELECTRON
-
-                    elif any("tauri" in n.lower() for n in names):
-                        runtime = AppRuntime.TAURI
-
-                    elif any(n.endswith(".jar") for n in names):
-                        runtime = AppRuntime.JAVA
-
-                    elif "site-packages" in names and any(
-                        n.endswith(".py") for n in names
-                    ):
-                        runtime = AppRuntime.PYTHON
-
-                    elif "package.json" in names or "node_modules" in names:
-                        runtime = AppRuntime.NODE
-
-                    elif "libcef.so" in names or "chrome" in names:
-                        runtime = AppRuntime.CHROMIUM
-
-                    desktop = next(tmp_path.rglob("*.desktop"), None)
-
-                    icon_name = None
-
-                    if desktop:
-                        config = configparser.ConfigParser(interpolation=None)
-                        content = desktop.read_text(errors="ignore")
-
-                        if "[Desktop Entry]" not in content:
-                            content = "[Desktop Entry]\n" + content
-
-                        config.read_string(content)
-
-                        if config.has_section("Desktop Entry"):
-                            entry = config["Desktop Entry"]
-
-                            publisher = (
-                                entry.get("X-AppImage-Publisher")
-                                or entry.get("X-AppImage-Author")
-                                or entry.get("X-AppImage-Developer")
-                                or publisher
-                            )
-
-                            name = entry.get("Name", name)
-                            description = entry.get("Comment", description)
-
-                            if version == "unknown":
-                                version = entry.get("Version", version)
-
-                            icon_name = entry.get("Icon")
-
-                        import xml.etree.ElementTree as ET
-
-                        appstream_files = list(tmp_path.rglob("*.appdata.xml")) + list(
-                            tmp_path.rglob("*.metainfo.xml")
-                        )
-
-                        if appstream_files:
-                            try:
-                                tree = ET.parse(appstream_files[0])
-                                root = tree.getroot()
-
-                                if publisher == "unknown":
-                                    dev = root.find(".//developer_name")
-                                    if dev is not None and dev.text:
-                                        publisher = dev.text.strip()
-
-                                if description is None:
-                                    summary = root.find(".//summary")
-                                    if summary is not None and summary.text:
-                                        description = summary.text.strip()
-
-                                if version == "unknown":
-                                    release = root.find(".//release")
-                                    if release is not None:
-                                        version = release.attrib.get("version", version)
-
-                            except Exception as e:
-                                self.logger.warning(
-                                    f"AppImage inspect failed : {str(e)}"
-                                )
-                                pass
-
-                    icon_file = tmp_path / ".DirIcon"
-
-                    if not icon_file.exists():
-                        candidates = []
-
-                        if icon_name:
-                            candidates.extend(tmp_path.rglob(f"{icon_name}*.png"))
-                            candidates.extend(tmp_path.rglob(f"{icon_name}*.svg"))
-
-                        # fallback: pick largest png
-                        if not candidates:
-                            candidates = list(tmp_path.rglob("*.png")) + list(
-                                tmp_path.rglob("*.svg")
-                            )
-
-                        if candidates:
-                            icon_file = max(
-                                candidates,
-                                key=lambda p: p.stat().st_size if p.exists() else 0,
-                            )
-
-                    if icon_file.exists():
-                        cache = Path.home() / ".local/share/apphub/icons"
-                        cache.mkdir(parents=True, exist_ok=True)
-
-                        cached_icon = cache / f"appimage_{path.stem}{icon_file.suffix}"
-                        shutil.copy2(icon_file, cached_icon)
-                        icon_path = str(cached_icon)
-
-            except Exception as e:
-                self.logger.warning(f"AppImage metadata extraction failed: {e}")
+        name, description, version, publisher, icon_path, runtime = (
+            await self._extract_embedded_metadata(path)
+        )
 
         return AppManifest(
             name=name,
@@ -291,7 +285,6 @@ class AppImagePlugin(PluginBase):
 
         if launch:
             try:
-                # Use gtk-launch to ensure it uses the desktop entry logic
                 desktop_id = f"apphub-{dest_path.stem}.desktop"
                 await run_cmd("gtk-launch", desktop_id)
             except Exception as e:
@@ -331,9 +324,7 @@ class AppImagePlugin(PluginBase):
 
         try:
             desktop_file.write_text("\n".join(content) + "\n")
-
             await run_cmd("update-desktop-database", str(desktop_dir))
-
             self.logger.info(f"Created desktop entry: {desktop_file}")
         except Exception as e:
             self.logger.error(f"Failed to create desktop entry: {e}")
@@ -359,6 +350,27 @@ class AppImagePlugin(PluginBase):
         with open(history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
+    def _remove_sidecar_files(self, app_path: Path) -> None:
+        desktop_file = (
+            Path.home()
+            / ".local/share/applications"
+            / f"apphub-{app_path.stem}.desktop"
+        )
+        if desktop_file.exists():
+            try:
+                desktop_file.unlink()
+                self.logger.info(f"Removed desktop entry: {desktop_file}")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove desktop entry: {e}")
+
+        if _ICON_CACHE_DIR.exists():
+            try:
+                for icon in _ICON_CACHE_DIR.glob(f"appimage_{app_path.stem}*"):
+                    icon.unlink()
+                    self.logger.info(f"Removed icon: {icon}")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove icons: {e}")
+
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
         apps_dir = Path.home() / "Applications"
         app_filename = (
@@ -379,24 +391,7 @@ class AppImagePlugin(PluginBase):
             removed = True
 
         if clean_uninstall:
-            desktop_dir = Path.home() / ".local/share/applications"
-            desktop_file = desktop_dir / f"apphub-{app_path.stem}.desktop"
-
-            if desktop_file.exists():
-                try:
-                    desktop_file.unlink()
-                    self.logger.info(f"Removed desktop entry: {desktop_file}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to remove desktop entry: {e}")
-
-            icon_dir = Path.home() / ".local/share/apphub/icons"
-            if icon_dir.exists():
-                try:
-                    for icon in icon_dir.glob(f"appimage_{app_path.stem}*"):
-                        icon.unlink()
-                        self.logger.info(f"Removed icon: {icon}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to remove icons: {e}")
+            self._remove_sidecar_files(app_path)
 
         if removed:
             try:
@@ -427,11 +422,14 @@ class AppImagePlugin(PluginBase):
                         continue
                     try:
                         data = json.loads(line)
+                        event = LifeCycleEvent(data["lifecycle_event"])
+                        if action_categories and event not in action_categories:
+                            continue
                         records.append(
                             HistoryRecords(
                                 timestamp=datetime.fromisoformat(data["timestamp"]),
                                 format=AppFormat.APPIMAGE,
-                                lifecycle_event=LifeCycleEvent(data["lifecycle_event"]),
+                                lifecycle_event=event,
                                 app_name=data.get("app_name"),
                                 app_id=data.get("app_id"),
                                 version_id=data.get("version_id"),

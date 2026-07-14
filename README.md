@@ -49,7 +49,7 @@ apphub/
 
 ```bash
 git clone https://github.com/omseervi098/linux-app-manager.git
-cd linux-app-hub
+cd linux-app-manager
 pipx install -e .
 ```
 

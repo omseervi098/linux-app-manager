@@ -20,15 +20,20 @@ def _format_size(size_bytes: int | None) -> str:
     return f"{size:.1f} TB"
 
 
-def format_app_table(apps: list[AppManifest], title: str = "Applications") -> Table:
-    """Styled Rich table for a list of AppManifest objects."""
-    table = Table(
+def _styled_table(title: str) -> Table:
+    """Shared Rich table chrome for list/history views."""
+    return Table(
         title=title,
         box=box.ROUNDED,
         highlight=True,
         show_lines=False,
         header_style="bold cyan",
     )
+
+
+def format_app_table(apps: list[AppManifest], title: str = "Applications") -> Table:
+    """Styled Rich table for a list of AppManifest objects."""
+    table = _styled_table(title)
     table.add_column("Name", style="bold white", min_width=20)
     table.add_column("Format", style="yellow", justify="center")
     table.add_column("Version", style="magenta")
@@ -109,13 +114,7 @@ def format_history_table(
 ) -> Table:
     """Styled Rich table for a list of HistoryRecords objects."""
 
-    table = Table(
-        title=title,
-        box=box.ROUNDED,
-        highlight=True,
-        show_lines=False,
-        header_style="bold cyan",
-    )
+    table = _styled_table(title)
     table.add_column("Name", style="bold white", min_width=20)
     table.add_column("Format", style="yellow", justify="center")
     table.add_column("Timestamp", style="magenta")
@@ -128,8 +127,10 @@ def format_history_table(
             record.format.value,
             record.timestamp.strftime("%B %d, %Y, %I:%M %p"),
             record.lifecycle_event,
-            f"{record.old_version_id} -> {record.version_id}"
-            if record.lifecycle_event == LifeCycleEvent.UPGRADED
-            else record.version_id,
+            (
+                f"{record.old_version_id} -> {record.version_id}"
+                if record.lifecycle_event == LifeCycleEvent.UPGRADED
+                else record.version_id
+            ),
         )
     return table

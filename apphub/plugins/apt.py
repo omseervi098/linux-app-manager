@@ -12,6 +12,7 @@ from apphub.core.models import (
     HistoryRecords,
     LifeCycleEvent,
 )
+from apphub.core.runtime import detect_runtime_from_names
 from apphub.core.utils import run_cmd
 from apphub.plugins.base import PluginBase
 
@@ -191,22 +192,7 @@ class AptPlugin(PluginBase):
                 self.logger.warning(f"APT inspect failed while extract .deb : {e}")
                 pass
 
-            if (
-                "chrome-sandbox" in names
-                or "libnode.so" in names
-                or any(n.endswith(".asar") for n in names)
-            ):
-                runtime = AppRuntime.ELECTRON
-            elif any("tauri" in n.lower() for n in names):
-                runtime = AppRuntime.TAURI
-            elif any(n.endswith(".jar") for n in names):
-                runtime = AppRuntime.JAVA
-            elif "site-packages" in names or any(n.endswith(".py") for n in names):
-                runtime = AppRuntime.PYTHON
-            elif "package.json" in names or "node_modules" in names:
-                runtime = AppRuntime.NODE
-            elif "libcef.so" in names or "chrome" in names:
-                runtime = AppRuntime.CHROMIUM
+            runtime = detect_runtime_from_names(names)
 
             if best_icon:
                 try:
@@ -351,104 +337,104 @@ class AptPlugin(PluginBase):
             tzinfo=timezone.utc
         )
 
+    @staticmethod
+    def _parse_log_entry(entry: str) -> dict[str, str]:
+        """Parse a single line block from history.log ."""
+        data: dict[str, str] = {}
+        current_key: str | None = None
+        for line in entry.splitlines():
+            if not line:
+                continue
+            if not line[0].isspace() and ": " in line:
+                key, value = line.split(": ", 1)
+                key = key.strip().lower()
+                data[key] = value.strip()
+                current_key = key
+            elif current_key and line.strip():
+                data[current_key] += " " + line.strip()
+        return data
+
+    def _append_package_records(
+        self,
+        history_records: list[HistoryRecords],
+        packages: list[dict],
+        timestamp: datetime,
+        event: LifeCycleEvent,
+    ) -> None:
+        for package in packages:
+            history_records.append(
+                HistoryRecords(
+                    timestamp=timestamp,
+                    format=AppFormat.DEBIAN,
+                    lifecycle_event=event,
+                    app_name=package["app_name"],
+                    app_id=f"apt:{package['app_name']}",
+                    version_id=package["version_id"],
+                    old_version_id=package.get("old_version_id"),
+                )
+            )
+
+    def _records_from_entry(
+        self,
+        data: dict[str, str],
+        action_categories: list[LifeCycleEvent] | None,
+    ) -> list[HistoryRecords]:
+        if "start-date" not in data:
+            return []
+
+        try:
+            timestamp = self.__parse_timestamp(data["start-date"])
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to parse timestamp {data.get('start-date')}: {e}"
+            )
+            return []
+
+        records: list[HistoryRecords] = []
+
+        def wants(event: LifeCycleEvent) -> bool:
+            return action_categories is None or event in action_categories
+
+        if wants(LifeCycleEvent.INSTALLED):
+            self._append_package_records(
+                records,
+                self.__parse_installed_or_uninstalled(data.get("install", "")),
+                timestamp,
+                LifeCycleEvent.INSTALLED,
+            )
+        if wants(LifeCycleEvent.UNINSTALLED):
+            for key in ("remove", "purge"):
+                self._append_package_records(
+                    records,
+                    self.__parse_installed_or_uninstalled(data.get(key, "")),
+                    timestamp,
+                    LifeCycleEvent.UNINSTALLED,
+                )
+        if wants(LifeCycleEvent.UPGRADED):
+            self._append_package_records(
+                records,
+                self.__parse_upgraded(data.get("upgrade", "")),
+                timestamp,
+                LifeCycleEvent.UPGRADED,
+            )
+        return records
+
     async def history(
         self, action_categories: list[LifeCycleEvent] | None = None
     ) -> list[HistoryRecords]:
         path = Path(self.LOG_FILE_PATH)
-        history_records = []
-        if path.exists():
-            try:
-                entries = path.read_text(encoding="utf-8").split("\n\n")
-                for entry in entries:
-                    if not entry.strip():
-                        continue
-                    data = {}
-                    current_key = None
-                    for line in entry.splitlines():
-                        if not line:
-                            continue
-                        if not line[0].isspace() and ": " in line:
-                            key, value = line.split(": ", 1)
-                            key = key.strip().lower()
-                            data[key] = value.strip()
-                            current_key = key
-                        elif current_key and line.strip():
-                            data[current_key] += " " + line.strip()
+        history_records: list[HistoryRecords] = []
+        if not path.exists():
+            return history_records
 
-                    if "start-date" not in data:
-                        continue
-
-                    try:
-                        timestamp = self.__parse_timestamp(data["start-date"])
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Failed to parse timestamp {data.get('start-date')}: {e}"
-                        )
-                        continue
-
-                    if (
-                        action_categories is None
-                        or LifeCycleEvent.INSTALLED in action_categories
-                    ):
-                        for package in self.__parse_installed_or_uninstalled(
-                            data.get("install", "")
-                        ):
-                            history_records.append(
-                                HistoryRecords(
-                                    timestamp=timestamp,
-                                    format=AppFormat.DEBIAN,
-                                    lifecycle_event=LifeCycleEvent.INSTALLED,
-                                    app_name=package["app_name"],
-                                    app_id=f"apt:{package['app_name']}",
-                                    version_id=package["version_id"],
-                                )
-                            )
-                    if (
-                        action_categories is None
-                        or LifeCycleEvent.UNINSTALLED in action_categories
-                    ):
-                        for package in self.__parse_installed_or_uninstalled(
-                            data.get("remove", "")
-                        ):
-                            history_records.append(
-                                HistoryRecords(
-                                    timestamp=timestamp,
-                                    format=AppFormat.DEBIAN,
-                                    lifecycle_event=LifeCycleEvent.UNINSTALLED,
-                                    app_name=package["app_name"],
-                                    app_id=f"apt:{package['app_name']}",
-                                    version_id=package["version_id"],
-                                )
-                            )
-                        for package in self.__parse_installed_or_uninstalled(
-                            data.get("purge", "")
-                        ):
-                            history_records.append(
-                                HistoryRecords(
-                                    timestamp=timestamp,
-                                    format=AppFormat.DEBIAN,
-                                    lifecycle_event=LifeCycleEvent.UNINSTALLED,
-                                    app_name=package["app_name"],
-                                    app_id=f"apt:{package['app_name']}",
-                                    version_id=package["version_id"],
-                                )
-                            )
-                    if (
-                        action_categories is None
-                        or LifeCycleEvent.UPGRADED in action_categories
-                    ):
-                        for package in self.__parse_upgraded(data.get("upgrade", "")):
-                            history_records.append(
-                                HistoryRecords(
-                                    timestamp=timestamp,
-                                    format=AppFormat.DEBIAN,
-                                    lifecycle_event=LifeCycleEvent.UPGRADED,
-                                    app_name=package["app_name"],
-                                    app_id=f"apt:{package['app_name']}",
-                                    version_id=package["version_id"],
-                                    old_version_id=package["old_version_id"],
-                                )
-                            )
-            except Exception as e:
-                self.logger.error(f"Failed to read or parse APT history log: {e}")
+        try:
+            for entry in path.read_text(encoding="utf-8").split("\n\n"):
+                if not entry.strip():
+                    continue
+                data = self._parse_log_entry(entry)
+                history_records.extend(
+                    self._records_from_entry(data, action_categories)
+                )
+        except Exception as e:
+            self.logger.error(f"Failed to read or parse APT history log: {e}")
         return history_records

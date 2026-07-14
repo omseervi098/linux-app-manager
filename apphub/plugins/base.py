@@ -1,52 +1,46 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from logging import Logger
 from pathlib import Path
 
 from apphub.core.logger import get_logger
-from apphub.core.models import AppManifest, DistroInfo, LifeCycleEvent, HistoryRecords
+from apphub.core.models import AppManifest, DistroInfo, HistoryRecords, LifeCycleEvent
 from apphub.core.utils import detect_distro_info
 
 
 class PluginBase(ABC):
+    """Base class for package-manager plugins"""
+
     def __init__(self) -> None:
         self.logger: Logger = get_logger(self.__class__.__name__)
         self.distro_info: DistroInfo = detect_distro_info()
         super().__init__()
 
+    @abstractmethod
     async def list_apps(self) -> list[AppManifest]:
-        """Implement this to list apps"""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support list_apps()"
-        )
+        """List installed applications for this format."""
 
+    @abstractmethod
     async def inspect(self, path: Path) -> AppManifest:
-        """Implement this to inspect app info from path"""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support inspect()"
-        )
+        """Inspect a local package/file and return an AppManifest."""
 
     async def search(self, query: str) -> list[AppManifest]:
-        """Implement this to search app over repository"""
+        """Search remote registries. Optional — not all formats support it."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support search()"
         )
 
+    @abstractmethod
     async def install(self, query_or_path: str, launch: bool) -> bool:
-        """Implement this to install app"""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support install()"
-        )
+        """Install an application from a registry name or local path."""
 
+    @abstractmethod
     async def uninstall(self, app_info: AppManifest, clean_uninstall: bool) -> bool:
-        """Implement this to uninstall app"""
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support uninstall()"
-        )
+        """Uninstall an application; optionally purge associated data."""
 
     async def history(
         self, action_categories: list[LifeCycleEvent] | None = None
     ) -> list[HistoryRecords]:
-        """Implement this to list app history"""
+        """Return lifecycle history. Optional — not all formats support it."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support history()"
         )
